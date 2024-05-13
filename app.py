@@ -40,6 +40,9 @@ classifications = [
 combined_feed = []
 denied_urls = []
 
+# Lock to prevent access to combined_feed during refresh
+feed_lock = asyncio.Lock()
+
 
 async def fetch_feed_data(rss_feed_url, headers):
     try:
@@ -121,9 +124,10 @@ async def update_combined_feed():
                 print(f"Failed to parse XML for {rss_feed_url}: {parse_error}")
                 updated_denied_urls.append(rss_feed_url)
 
-    # Update global variables
-    combined_feed = updated_feed
-    denied_urls = updated_denied_urls
+    # Update global variables inside the lock
+    async with feed_lock:
+        combined_feed = updated_feed
+        denied_urls = updated_denied_urls
 
 
 @app.on_event("startup")
@@ -132,7 +136,8 @@ async def startup_event():
 
 @app.get("/combined_feed")
 async def get_combined_feed():
-    return combined_feed
+    async with feed_lock:
+        return combined_feed
 
 
 @app.post("/refresh_feed")
