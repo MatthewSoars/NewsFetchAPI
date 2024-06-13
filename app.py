@@ -16,7 +16,7 @@ classifications = [
     "Education",
     "Environmental",
     "General Construction",
-    "Glazing",
+    "Glass and Glazing",
     "Green issues",
     "Groundworks",
     "House Building",
@@ -34,7 +34,11 @@ classifications = [
     "Building Regulations",
     "Drainage and flood control",
     "Concrete",
-    "Minerals"
+    "Minerals",
+    "Engineering",
+    "General Construction",
+    "Modular Building",
+    "BIM Technology"
 ]
 
 combined_feed = []
