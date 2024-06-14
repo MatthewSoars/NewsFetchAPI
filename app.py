@@ -3,9 +3,8 @@ import httpx
 import feedparser
 from datetime import datetime
 import asyncio
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 import joblib
-import os
 
 app = FastAPI()
 
@@ -15,12 +14,7 @@ denied_urls: List[str] = []
 feed_lock = asyncio.Lock()
 
 # Load the trained model
-model_path = 'classification_model.pkl'
-if os.path.exists(model_path):
-    model = joblib.load(model_path)
-else:
-    raise FileNotFoundError(f"Model file not found: {model_path}")
-
+model = joblib.load('classification_model.pkl')
 
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
     async with httpx.AsyncClient() as client:
@@ -35,7 +29,6 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
             print(f"Error fetching RSS feed: {e}")
             denied_urls.append(rss_feed_url)
     return None
-
 
 def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
     title = entry.get("title", "")
@@ -88,7 +81,6 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
         "classification": classification
     }
 
-
 async def update_combined_feed() -> None:
     global combined_feed, denied_urls
 
@@ -122,24 +114,20 @@ async def update_combined_feed() -> None:
         combined_feed = updated_feed
         denied_urls = updated_denied_urls
 
-
 @app.on_event("startup")
 async def startup_event() -> None:
     await update_combined_feed()
     asyncio.create_task(refresh_feed_background_task())
-
 
 @app.get("/combined_feed")
 async def get_combined_feed() -> List[Dict[str, Any]]:
     async with feed_lock:
         return combined_feed
 
-
 @app.post("/refresh_feed")
 async def refresh_feed(background_tasks: BackgroundTasks) -> Dict[str, str]:
     background_tasks.add_task(update_combined_feed)
     return {"message": "Feed refresh scheduled"}
-
 
 async def refresh_feed_background_task() -> None:
     while True:
