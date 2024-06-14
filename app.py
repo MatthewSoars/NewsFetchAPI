@@ -4,25 +4,18 @@ import xml.etree.ElementTree as ET
 from datetime import datetime
 from xml.etree.ElementTree import ParseError
 import asyncio
-import random
 from typing import List, Optional, Dict, Any
+import joblib
 
 app = FastAPI()
-
-classifications = [
-    "Architectural", "Bricks & Blocks", "Cladding", "Construction Software", "Education",
-    "Environmental", "General Construction", "Glass and Glazing", "Green issues", "Groundworks",
-    "House Building", "Interiors", "Plant & Machinery", "Plumbing and heating", "Public sector",
-    "Roads & Highways", "Roofing", "Solar", "Surveying", "Sustainability", "Tools and accessories",
-    "Waterproofing", "Building Regulations", "Drainage and flood control", "Concrete", "Minerals",
-    "Engineering", "General Construction", "Modular Building", "BIM Technology"
-]
 
 combined_feed: List[Dict[str, Any]] = []
 denied_urls: List[str] = []
 
 feed_lock = asyncio.Lock()
 
+# Load the trained model
+model = joblib.load('classification_model.pkl')
 
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
     async with httpx.AsyncClient() as client:
@@ -59,7 +52,18 @@ async def parse_feed_entry(item: ET.Element, rss_feed_url: str) -> Dict[str, Any
 
     formatted_pub_date = pub_date.strftime("%Y-%m-%d %H:%M:%S") if pub_date else None
 
-    classification = random.choice(classifications)
+    # Predict classification using the model
+    text = f"{title} {description}"
+    classification = model.predict([text])[0]
+
+    # Extract image link if available
+    image_link = item.findtext("media:content/@url")  # For RSS feeds using media namespace
+    if not image_link:
+        enclosure = item.find("enclosure")
+        if enclosure is not None and 'url' in enclosure.attrib:
+            image_link = enclosure.attrib['url']
+        else:
+            image_link = ""
 
     return {
         "title": title,
@@ -67,7 +71,7 @@ async def parse_feed_entry(item: ET.Element, rss_feed_url: str) -> Dict[str, Any
         "description": description,
         "pub_date": formatted_pub_date,
         "url": rss_feed_url,
-        "image_link": "",
+        "image_link": image_link,
         "classification": classification
     }
 
