@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
-    async with httpx.AsyncClient(follow_redirects=True) as client:
+    async with httpx.AsyncClient(follow_redirects=True, verify=False) as client:
         try:
             response = await client.get(rss_feed_url, headers=headers)
             response.raise_for_status()
