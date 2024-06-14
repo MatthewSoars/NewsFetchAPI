@@ -14,15 +14,17 @@ denied_urls: List[str] = []
 
 feed_lock = asyncio.Lock()
 
-# Load the trained model
-model_path = 'classification_model.pkl'
-if os.path.exists(model_path):
+# Load the trained model and vectorizer
+model_path = 'text_classifier_model.pkl'
+vectorizer_path = 'tfidf_vectorizer.pkl'
+if os.path.exists(model_path) and os.path.exists(vectorizer_path):
     try:
         model = joblib.load(model_path)
+        vectorizer = joblib.load(vectorizer_path)
     except ModuleNotFoundError as e:
         raise ModuleNotFoundError(f"Required module not found: {e}")
 else:
-    raise FileNotFoundError(f"Model file not found: {model_path}")
+    raise FileNotFoundError(f"Model or vectorizer file not found: {model_path} or {vectorizer_path}")
 
 
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
@@ -62,7 +64,8 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
 
     # Predict classification using the model
     text = f"{title} {description}"
-    classification = model.predict([text])[0]
+    text_vectorized = vectorizer.transform([text])
+    classification = model.predict(text_vectorized)[0]
 
     # Extract image link if available
     image_link = None
