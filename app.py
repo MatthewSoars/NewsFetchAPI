@@ -3,7 +3,7 @@ import httpx
 import feedparser
 from datetime import datetime
 import asyncio
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 import random
 import logging
 
@@ -39,9 +39,6 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
             denied_urls.append(rss_feed_url)
         except httpx.RequestError as e:
             logger.error(f"Error fetching RSS feed: {e}")
-            denied_urls.append(rss_feed_url)
-        except httpx.SSLError as e:
-            logger.error(f"SSL error fetching RSS feed: {e}")
             denied_urls.append(rss_feed_url)
     return None
 
