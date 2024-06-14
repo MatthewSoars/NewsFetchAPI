@@ -1,13 +1,17 @@
 from fastapi import FastAPI, BackgroundTasks
 import httpx
-import xml.etree.ElementTree as ET
+import feedparser
 from datetime import datetime
-from xml.etree.ElementTree import ParseError
 import asyncio
+from typing import List, Dict, Any
 import random
-from typing import List, Optional, Dict, Any
 
 app = FastAPI()
+
+combined_feed: List[Dict[str, Any]] = []
+denied_urls: List[str] = []
+
+feed_lock = asyncio.Lock()
 
 classifications = [
     "Architectural", "Bricks & Blocks", "Cladding", "Construction Software", "Education",
@@ -17,11 +21,6 @@ classifications = [
     "Waterproofing", "Building Regulations", "Drainage and flood control", "Concrete", "Minerals",
     "Engineering", "General Construction", "Modular Building", "BIM Technology"
 ]
-
-combined_feed: List[Dict[str, Any]] = []
-denied_urls: List[str] = []
-
-feed_lock = asyncio.Lock()
 
 
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
@@ -39,16 +38,16 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
     return None
 
 
-async def parse_feed_entry(item: ET.Element, rss_feed_url: str) -> Dict[str, Any]:
-    title = item.findtext("title", default="")
-    link = item.findtext("link", default="")
-    description = item.findtext("description", default="")
-    pub_date_str = item.findtext("pubDate", default="")
+def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
+    title = entry.get("title", "")
+    link = entry.get("link", "")
+    description = entry.get("description", "")
+    pub_date_str = entry.get("published", "")
 
     pub_date = None
     formats_to_try = [
         "%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S", "%a, %d %b %Y %H:%M %z",
-        "%a, %d %b %Y %H:%M", "%a, %d %b %Y %H:%M:%S GMT"
+        "%a, %d %b %Y %H:%M", "%a, %d %b %Y %H:%M:%S GMT", "%Y-%m-%dT%H:%M:%S%z"
     ]
     for date_format in formats_to_try:
         try:
@@ -59,7 +58,25 @@ async def parse_feed_entry(item: ET.Element, rss_feed_url: str) -> Dict[str, Any
 
     formatted_pub_date = pub_date.strftime("%Y-%m-%d %H:%M:%S") if pub_date else None
 
+    # Assign a random classification
     classification = random.choice(classifications)
+
+    # Extract image link if available
+    image_link = None
+    if "media_content" in entry:
+        for media in entry["media_content"]:
+            if "url" in media:
+                image_link = media["url"]
+                break
+
+    if not image_link and "media_thumbnail" in entry:
+        image_link = entry["media_thumbnail"][0]["url"]
+
+    if not image_link and "links" in entry:
+        for link in entry["links"]:
+            if link["rel"] == "enclosure" and link["type"].startswith("image"):
+                image_link = link["href"]
+                break
 
     return {
         "title": title,
@@ -67,7 +84,7 @@ async def parse_feed_entry(item: ET.Element, rss_feed_url: str) -> Dict[str, Any
         "description": description,
         "pub_date": formatted_pub_date,
         "url": rss_feed_url,
-        "image_link": "",
+        "image_link": image_link or "",
         "classification": classification
     }
 
@@ -92,15 +109,14 @@ async def update_combined_feed() -> None:
     for rss_feed_url in rss_feed_urls:
         feed_data = await fetch_feed_data(rss_feed_url, headers)
         if feed_data:
-            try:
-                root = ET.fromstring(feed_data)
-                items = root.findall(".//item")
-                for item in items:
-                    entry = await parse_feed_entry(item, rss_feed_url)
-                    updated_feed.append(entry)
-            except ParseError as parse_error:
-                print(f"Failed to parse XML for {rss_feed_url}: {parse_error}")
+            parsed_feed = feedparser.parse(feed_data)
+            if parsed_feed.bozo:  # Check if there was a parsing error
+                print(f"Failed to parse feed {rss_feed_url}: {parsed_feed.bozo_exception}")
                 updated_denied_urls.append(rss_feed_url)
+                continue
+            for entry in parsed_feed.entries:
+                feed_entry = parse_feed_entry(entry, rss_feed_url)
+                updated_feed.append(feed_entry)
 
     async with feed_lock:
         combined_feed = updated_feed
