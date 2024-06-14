@@ -1,20 +1,28 @@
 from fastapi import FastAPI, BackgroundTasks
 import httpx
-import feedparser
+import xml.etree.ElementTree as ET
 from datetime import datetime
+from xml.etree.ElementTree import ParseError
 import asyncio
-from typing import List, Dict, Any
-import joblib
+import random
+from typing import List, Optional, Dict, Any
 
 app = FastAPI()
+
+classifications = [
+    "Architectural", "Bricks & Blocks", "Cladding", "Construction Software", "Education",
+    "Environmental", "General Construction", "Glass and Glazing", "Green issues", "Groundworks",
+    "House Building", "Interiors", "Plant & Machinery", "Plumbing and heating", "Public sector",
+    "Roads & Highways", "Roofing", "Solar", "Surveying", "Sustainability", "Tools and accessories",
+    "Waterproofing", "Building Regulations", "Drainage and flood control", "Concrete", "Minerals",
+    "Engineering", "General Construction", "Modular Building", "BIM Technology"
+]
 
 combined_feed: List[Dict[str, Any]] = []
 denied_urls: List[str] = []
 
 feed_lock = asyncio.Lock()
 
-# Load the trained model
-model = joblib.load('classification_model.pkl')
 
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
     async with httpx.AsyncClient() as client:
@@ -30,16 +38,17 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
             denied_urls.append(rss_feed_url)
     return None
 
-def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
-    title = entry.get("title", "")
-    link = entry.get("link", "")
-    description = entry.get("description", "")
-    pub_date_str = entry.get("published", "")
+
+async def parse_feed_entry(item: ET.Element, rss_feed_url: str) -> Dict[str, Any]:
+    title = item.findtext("title", default="")
+    link = item.findtext("link", default="")
+    description = item.findtext("description", default="")
+    pub_date_str = item.findtext("pubDate", default="")
 
     pub_date = None
     formats_to_try = [
         "%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S", "%a, %d %b %Y %H:%M %z",
-        "%a, %d %b %Y %H:%M", "%a, %d %b %Y %H:%M:%S GMT", "%Y-%m-%dT%H:%M:%S%z"
+        "%a, %d %b %Y %H:%M", "%a, %d %b %Y %H:%M:%S GMT"
     ]
     for date_format in formats_to_try:
         try:
@@ -50,26 +59,7 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
 
     formatted_pub_date = pub_date.strftime("%Y-%m-%d %H:%M:%S") if pub_date else None
 
-    # Predict classification using the model
-    text = f"{title} {description}"
-    classification = model.predict([text])[0]
-
-    # Extract image link if available
-    image_link = None
-    if "media_content" in entry:
-        for media in entry["media_content"]:
-            if "url" in media:
-                image_link = media["url"]
-                break
-
-    if not image_link and "media_thumbnail" in entry:
-        image_link = entry["media_thumbnail"][0]["url"]
-
-    if not image_link and "links" in entry:
-        for link in entry["links"]:
-            if link["rel"] == "enclosure" and link["type"].startswith("image"):
-                image_link = link["href"]
-                break
+    classification = random.choice(classifications)
 
     return {
         "title": title,
@@ -77,9 +67,10 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
         "description": description,
         "pub_date": formatted_pub_date,
         "url": rss_feed_url,
-        "image_link": image_link or "",
+        "image_link": "",
         "classification": classification
     }
+
 
 async def update_combined_feed() -> None:
     global combined_feed, denied_urls
@@ -101,33 +92,38 @@ async def update_combined_feed() -> None:
     for rss_feed_url in rss_feed_urls:
         feed_data = await fetch_feed_data(rss_feed_url, headers)
         if feed_data:
-            parsed_feed = feedparser.parse(feed_data)
-            if parsed_feed.bozo:  # Check if there was a parsing error
-                print(f"Failed to parse feed {rss_feed_url}: {parsed_feed.bozo_exception}")
+            try:
+                root = ET.fromstring(feed_data)
+                items = root.findall(".//item")
+                for item in items:
+                    entry = await parse_feed_entry(item, rss_feed_url)
+                    updated_feed.append(entry)
+            except ParseError as parse_error:
+                print(f"Failed to parse XML for {rss_feed_url}: {parse_error}")
                 updated_denied_urls.append(rss_feed_url)
-                continue
-            for entry in parsed_feed.entries:
-                feed_entry = parse_feed_entry(entry, rss_feed_url)
-                updated_feed.append(feed_entry)
 
     async with feed_lock:
         combined_feed = updated_feed
         denied_urls = updated_denied_urls
+
 
 @app.on_event("startup")
 async def startup_event() -> None:
     await update_combined_feed()
     asyncio.create_task(refresh_feed_background_task())
 
+
 @app.get("/combined_feed")
 async def get_combined_feed() -> List[Dict[str, Any]]:
     async with feed_lock:
         return combined_feed
 
+
 @app.post("/refresh_feed")
 async def refresh_feed(background_tasks: BackgroundTasks) -> Dict[str, str]:
     background_tasks.add_task(update_combined_feed)
     return {"message": "Feed refresh scheduled"}
+
 
 async def refresh_feed_background_task() -> None:
     while True:
