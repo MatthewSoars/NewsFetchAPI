@@ -83,7 +83,6 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
 
     return {
         "title": title,
-        "link": link,
         "description": description,
         "pub_date": formatted_pub_date,
         "url": rss_feed_url,
