@@ -6,6 +6,7 @@ import asyncio
 from typing import List, Dict, Any, Optional
 import joblib
 import os
+import logging
 
 app = FastAPI()
 
@@ -14,6 +15,9 @@ denied_urls: List[str] = []
 
 feed_lock = asyncio.Lock()
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Load the trained model and vectorizer
 model_path = 'text_classifier_model.pkl'
 vectorizer_path = 'tfidf_vectorizer.pkl'
@@ -21,9 +25,12 @@ if os.path.exists(model_path) and os.path.exists(vectorizer_path):
     try:
         model = joblib.load(model_path)
         vectorizer = joblib.load(vectorizer_path)
+        logger.info("Model and vectorizer loaded successfully.")
     except ModuleNotFoundError as e:
-        raise ModuleNotFoundError(f"Required module not found: {e}")
+        logger.error(f"Required module not found: {e}")
+        raise
 else:
+    logger.error(f"Model or vectorizer file not found: {model_path} or {vectorizer_path}")
     raise FileNotFoundError(f"Model or vectorizer file not found: {model_path} or {vectorizer_path}")
 
 
@@ -34,10 +41,10 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
             if response.status_code == 200:
                 return response.content
             else:
-                print(f"Failed to fetch the RSS feed for {rss_feed_url} with status code {response.status_code}")
+                logger.warning(f"Failed to fetch the RSS feed for {rss_feed_url} with status code {response.status_code}")
                 denied_urls.append(rss_feed_url)
         except httpx.RequestError as e:
-            print(f"Error fetching RSS feed: {e}")
+            logger.error(f"Error fetching RSS feed: {e}")
             denied_urls.append(rss_feed_url)
     return None
 
@@ -86,6 +93,7 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
 
     return {
         "title": title,
+        "link": link,
         "description": description,
         "pub_date": formatted_pub_date,
         "url": rss_feed_url,
@@ -101,7 +109,7 @@ async def update_combined_feed() -> None:
         with open("Accepted.txt", "r") as file:
             rss_feed_urls = file.read().splitlines()
     except FileNotFoundError as e:
-        print(f"Accepted.txt not found: {e}")
+        logger.error(f"Accepted.txt not found: {e}")
         return
 
     headers = {
@@ -116,7 +124,7 @@ async def update_combined_feed() -> None:
         if feed_data:
             parsed_feed = feedparser.parse(feed_data)
             if parsed_feed.bozo:  # Check if there was a parsing error
-                print(f"Failed to parse feed {rss_feed_url}: {parsed_feed.bozo_exception}")
+                logger.warning(f"Failed to parse feed {rss_feed_url}: {parsed_feed.bozo_exception}")
                 updated_denied_urls.append(rss_feed_url)
                 continue
             for entry in parsed_feed.entries:
@@ -126,10 +134,12 @@ async def update_combined_feed() -> None:
     async with feed_lock:
         combined_feed = updated_feed
         denied_urls = updated_denied_urls
+    logger.info("Feed update complete.")
 
 
 @app.on_event("startup")
 async def startup_event() -> None:
+    logger.info("Starting up and updating the feed.")
     # Initial feed update at startup
     await update_combined_feed()
     # Schedule the feed refresh task
