@@ -24,6 +24,7 @@ if os.path.exists(model_path):
 else:
     raise FileNotFoundError(f"Model file not found: {model_path}")
 
+
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
     async with httpx.AsyncClient() as client:
         try:
@@ -37,6 +38,7 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
             print(f"Error fetching RSS feed: {e}")
             denied_urls.append(rss_feed_url)
     return None
+
 
 def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
     title = entry.get("title", "")
@@ -89,6 +91,7 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
         "classification": classification
     }
 
+
 async def update_combined_feed() -> None:
     global combined_feed, denied_urls
 
@@ -122,22 +125,28 @@ async def update_combined_feed() -> None:
         combined_feed = updated_feed
         denied_urls = updated_denied_urls
 
+
 @app.on_event("startup")
 async def startup_event() -> None:
+    # Initial feed update at startup
     await update_combined_feed()
+    # Schedule the feed refresh task
     asyncio.create_task(refresh_feed_background_task())
+
 
 @app.get("/combined_feed")
 async def get_combined_feed() -> List[Dict[str, Any]]:
     async with feed_lock:
         return combined_feed
 
+
 @app.post("/refresh_feed")
 async def refresh_feed(background_tasks: BackgroundTasks) -> Dict[str, str]:
     background_tasks.add_task(update_combined_feed)
     return {"message": "Feed refresh scheduled"}
 
+
 async def refresh_feed_background_task() -> None:
     while True:
         await update_combined_feed()
-        await asyncio.sleep(600)
+        await asyncio.sleep(600)  # 600 seconds = 10 minutes
