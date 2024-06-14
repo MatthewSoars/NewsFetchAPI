@@ -59,12 +59,19 @@ async def parse_feed_entry(item: ET.Element, rss_feed_url: str) -> Dict[str, Any
 
     # Extract image link if available
     image_link = None
-    media_content = item.find("{http://search.yahoo.com/mrss/}content")
+
+    namespaces = {
+        'media': 'http://search.yahoo.com/mrss/',
+        'content': 'http://purl.org/rss/1.0/modules/content/',
+        'dc': 'http://purl.org/dc/elements/1.1/'
+    }
+
+    media_content = item.find('media:content', namespaces)
     if media_content is not None:
         image_link = media_content.attrib.get('url', None)
 
     if not image_link:
-        media_thumbnail = item.find("{http://search.yahoo.com/mrss/}thumbnail")
+        media_thumbnail = item.find('media:thumbnail', namespaces)
         if media_thumbnail is not None:
             image_link = media_thumbnail.attrib.get('url', None)
 
@@ -74,12 +81,23 @@ async def parse_feed_entry(item: ET.Element, rss_feed_url: str) -> Dict[str, Any
             image_link = enclosure.attrib['url']
 
     if not image_link:
-        media_namespace = item.find(".//media:content", namespaces={'media': 'http://search.yahoo.com/mrss/'})
+        media_namespace = item.find(".//media:content", namespaces)
         if media_namespace is not None and 'url' in media_namespace.attrib:
             image_link = media_namespace.attrib['url']
 
     if not image_link:
+        description_html = ET.fromstring(description)
+        img_tag = description_html.find(".//img")
+        if img_tag is not None:
+            image_link = img_tag.attrib.get('src', '')
+
+    if not image_link:
         image_link = ""
+
+    # Extracting content from <content:encoded> if available
+    content_encoded = item.find('content:encoded', namespaces)
+    if content_encoded is not None and content_encoded.text:
+        description = content_encoded.text
 
     return {
         "title": title,
