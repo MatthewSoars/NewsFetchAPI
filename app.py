@@ -5,6 +5,7 @@ from datetime import datetime
 import asyncio
 from typing import List, Dict, Any, Optional
 import joblib
+import os
 
 app = FastAPI()
 
@@ -14,7 +15,11 @@ denied_urls: List[str] = []
 feed_lock = asyncio.Lock()
 
 # Load the trained model
-model = joblib.load('classification_model.pkl')
+model_path = 'classification_model.pkl'
+if os.path.exists(model_path):
+    model = joblib.load(model_path)
+else:
+    raise FileNotFoundError(f"Model file not found: {model_path}")
 
 
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
