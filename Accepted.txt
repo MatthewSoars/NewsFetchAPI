@@ -98,7 +98,7 @@ https://www.hvpmag.co.uk/rss
 https://www.philippinesconstruction.com/rss
 https://architectureau.com/rss
 https://constructionlinks.ca/rss
-https://www.enr.com/rss
+https://www.enr.com/rss/1s
 https://www.bdcmagazine.com/rss
 https://construction-today.com/rss
 https://www.ccr-mag.com/rss
