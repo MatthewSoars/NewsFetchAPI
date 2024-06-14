@@ -26,9 +26,9 @@ else:
 
 
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(verify=False) as client:
         try:
-            response = await client.get(rss_feed_url, headers=headers)
+            response = await client.get(rss_feed_url, headers=headers, follow_redirects=True)
             if response.status_code == 200:
                 return response.content
             else:
