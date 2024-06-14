@@ -86,7 +86,7 @@ async def parse_feed_entry(item: ET.Element, rss_feed_url: str) -> Dict[str, Any
             image_link = media_namespace.attrib['url']
 
     if not image_link:
-        description_html = ET.fromstring(description)
+        description_html = ET.fromstring(f"<root>{description}</root>")
         img_tag = description_html.find(".//img")
         if img_tag is not None:
             image_link = img_tag.attrib.get('src', '')
