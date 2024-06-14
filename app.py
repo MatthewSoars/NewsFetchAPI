@@ -145,3 +145,4 @@ async def refresh_feed_background_task() -> None:
     while True:
         await update_combined_feed()
         await asyncio.sleep(600)
+
