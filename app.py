@@ -5,6 +5,7 @@ from datetime import datetime
 import asyncio
 from typing import List, Dict, Any
 import random
+import logging
 
 app = FastAPI()
 
@@ -22,18 +23,25 @@ classifications = [
     "Engineering", "General Construction", "Modular Building", "BIM Technology"
 ]
 
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(follow_redirects=True) as client:
         try:
             response = await client.get(rss_feed_url, headers=headers)
-            if response.status_code == 200:
-                return response.content
-            else:
-                print(f"Failed to fetch the RSS feed for {rss_feed_url} with status code {response.status_code}")
-                denied_urls.append(rss_feed_url)
+            response.raise_for_status()
+            return response.content
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Failed to fetch the RSS feed for {rss_feed_url} with status code {e.response.status_code}")
+            denied_urls.append(rss_feed_url)
         except httpx.RequestError as e:
-            print(f"Error fetching RSS feed: {e}")
+            logger.error(f"Error fetching RSS feed: {e}")
+            denied_urls.append(rss_feed_url)
+        except httpx.SSLError as e:
+            logger.error(f"SSL error fetching RSS feed: {e}")
             denied_urls.append(rss_feed_url)
     return None
 
@@ -96,7 +104,7 @@ async def update_combined_feed() -> None:
         with open("Accepted.txt", "r") as file:
             rss_feed_urls = file.read().splitlines()
     except FileNotFoundError as e:
-        print(f"Accepted.txt not found: {e}")
+        logger.error(f"Accepted.txt not found: {e}")
         return
 
     headers = {
@@ -111,7 +119,7 @@ async def update_combined_feed() -> None:
         if feed_data:
             parsed_feed = feedparser.parse(feed_data)
             if parsed_feed.bozo:  # Check if there was a parsing error
-                print(f"Failed to parse feed {rss_feed_url}: {parsed_feed.bozo_exception}")
+                logger.error(f"Failed to parse feed {rss_feed_url}: {parsed_feed.bozo_exception}")
                 updated_denied_urls.append(rss_feed_url)
                 continue
             for entry in parsed_feed.entries:
