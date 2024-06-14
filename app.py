@@ -17,6 +17,7 @@ feed_lock = asyncio.Lock()
 # Load the trained model
 model = joblib.load('classification_model.pkl')
 
+
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
     async with httpx.AsyncClient() as client:
         try:
@@ -57,13 +58,28 @@ async def parse_feed_entry(item: ET.Element, rss_feed_url: str) -> Dict[str, Any
     classification = model.predict([text])[0]
 
     # Extract image link if available
-    image_link = item.findtext("media:content/@url")  # For RSS feeds using media namespace
+    image_link = None
+    media_content = item.find("{http://search.yahoo.com/mrss/}content")
+    if media_content is not None:
+        image_link = media_content.attrib.get('url', None)
+
+    if not image_link:
+        media_thumbnail = item.find("{http://search.yahoo.com/mrss/}thumbnail")
+        if media_thumbnail is not None:
+            image_link = media_thumbnail.attrib.get('url', None)
+
     if not image_link:
         enclosure = item.find("enclosure")
         if enclosure is not None and 'url' in enclosure.attrib:
             image_link = enclosure.attrib['url']
-        else:
-            image_link = ""
+
+    if not image_link:
+        media_namespace = item.find(".//media:content", namespaces={'media': 'http://search.yahoo.com/mrss/'})
+        if media_namespace is not None and 'url' in media_namespace.attrib:
+            image_link = media_namespace.attrib['url']
+
+    if not image_link:
+        image_link = ""
 
     return {
         "title": title,
