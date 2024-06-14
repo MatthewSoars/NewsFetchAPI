@@ -39,6 +39,7 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
         try:
             response = await client.get(rss_feed_url, headers=headers, follow_redirects=True)
             if response.status_code == 200:
+                logger.info(f"Successfully fetched the RSS feed for {rss_feed_url}")
                 return response.content
             else:
                 logger.warning(f"Failed to fetch the RSS feed for {rss_feed_url} with status code {response.status_code}")
@@ -108,6 +109,7 @@ async def update_combined_feed() -> None:
     try:
         with open("Accepted.txt", "r") as file:
             rss_feed_urls = file.read().splitlines()
+            logger.info("Accepted.txt loaded successfully.")
     except FileNotFoundError as e:
         logger.error(f"Accepted.txt not found: {e}")
         return
@@ -130,6 +132,8 @@ async def update_combined_feed() -> None:
             for entry in parsed_feed.entries:
                 feed_entry = parse_feed_entry(entry, rss_feed_url)
                 updated_feed.append(feed_entry)
+        else:
+            logger.warning(f"No feed data fetched for URL: {rss_feed_url}")
 
     async with feed_lock:
         combined_feed = updated_feed
