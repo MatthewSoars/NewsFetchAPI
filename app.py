@@ -29,6 +29,9 @@ if os.path.exists(model_path) and os.path.exists(vectorizer_path):
     except ModuleNotFoundError as e:
         logger.error(f"Required module not found: {e}")
         raise
+    except Exception as e:
+        logger.error(f"Error loading model or vectorizer: {e}")
+        raise
 else:
     logger.error(f"Model or vectorizer file not found: {model_path} or {vectorizer_path}")
     raise FileNotFoundError(f"Model or vectorizer file not found: {model_path} or {vectorizer_path}")
@@ -72,8 +75,12 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
 
     # Predict classification using the model
     text = f"{title} {description}"
-    text_vectorized = vectorizer.transform([text])
-    classification = model.predict(text_vectorized)[0]
+    try:
+        text_vectorized = vectorizer.transform([text])
+        classification = model.predict(text_vectorized)[0]
+    except Exception as e:
+        logger.error(f"Error during classification: {e}")
+        classification = "unknown"
 
     # Extract image link if available
     image_link = None
@@ -144,9 +151,10 @@ async def update_combined_feed() -> None:
 @app.on_event("startup")
 async def startup_event() -> None:
     logger.info("Starting up and updating the feed.")
-    # Initial feed update at startup
-    await update_combined_feed()
-    # Schedule the feed refresh task
+    try:
+        await update_combined_feed()
+    except Exception as e:
+        logger.error(f"Error during startup feed update: {e}")
     asyncio.create_task(refresh_feed_background_task())
 
 
@@ -164,5 +172,8 @@ async def refresh_feed(background_tasks: BackgroundTasks) -> Dict[str, str]:
 
 async def refresh_feed_background_task() -> None:
     while True:
-        await update_combined_feed()
+        try:
+            await update_combined_feed()
+        except Exception as e:
+            logger.error(f"Error during background feed update: {e}")
         await asyncio.sleep(600)  # 600 seconds = 10 minutes
