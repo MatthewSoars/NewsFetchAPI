@@ -26,8 +26,20 @@ async def startup_event() -> None:
     global model, vectorizer
     try:
         logger.info("Loading the model and vectorizer...")
-        model = joblib.load('text_classifier_model.pkl')
-        vectorizer = joblib.load('tfidf_vectorizer.pkl')
+        # Verify the existence of the files before loading
+        import os
+        model_path = 'text_classifier_model.pkl'
+        vectorizer_path = 'tfidf_vectorizer.pkl'
+
+        if not os.path.exists(model_path):
+            logger.error(f"Model file not found: {model_path}")
+            return
+        if not os.path.exists(vectorizer_path):
+            logger.error(f"Vectorizer file not found: {vectorizer_path}")
+            return
+
+        model = joblib.load(model_path)
+        vectorizer = joblib.load(vectorizer_path)
         logger.info("Model and vectorizer loaded successfully.")
 
         logger.info("Updating combined feed...")

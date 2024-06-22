@@ -6,6 +6,6 @@ if __name__ == "__main__":
         app,
         host="0.0.0.0",
         port=8080,
-        log_level="info",  # Set log level to 'info' or 'debug' for more verbosity
+        log_level="debug",  # Set log level to 'info' or 'debug' for more verbosity
         reload=True,       # Enables auto-reload in development mode
     )
