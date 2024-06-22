@@ -24,10 +24,22 @@ vectorizer = None
 @app.on_event("startup")
 async def startup_event() -> None:
     global model, vectorizer
-    model = joblib.load('text_classifier_model.pkl')
-    vectorizer = joblib.load('tfidf_vectorizer.pkl')
-    await update_combined_feed()
-    asyncio.create_task(refresh_feed_background_task())
+    try:
+        logger.info("Loading the model and vectorizer...")
+        model = joblib.load('text_classifier_model.pkl')
+        vectorizer = joblib.load('tfidf_vectorizer.pkl')
+        logger.info("Model and vectorizer loaded successfully.")
+
+        logger.info("Updating combined feed...")
+        await update_combined_feed()
+        logger.info("Combined feed updated successfully.")
+
+        logger.info("Starting the background task for refreshing feed...")
+        asyncio.create_task(refresh_feed_background_task())
+        logger.info("Background task started successfully.")
+    except Exception as e:
+        logger.error(f"Error during startup event: {e}")
+        raise
 
 
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
@@ -163,5 +175,10 @@ async def classify_article(article: Article) -> Dict[str, Any]:
 
 async def refresh_feed_background_task() -> None:
     while True:
-        await update_combined_feed()
+        try:
+            logger.info("Refreshing combined feed in background task...")
+            await update_combined_feed()
+            logger.info("Combined feed refreshed successfully.")
+        except Exception as e:
+            logger.error(f"Error in background feed refresh task: {e}")
         await asyncio.sleep(600)
