@@ -6,6 +6,7 @@ import asyncio
 from typing import List, Dict, Any, Optional
 import logging
 import joblib
+import os
 from pydantic import BaseModel
 
 app = FastAPI()
@@ -25,9 +26,8 @@ vectorizer = None
 async def startup_event() -> None:
     global model, vectorizer
     try:
-        logger.info("Loading the model and vectorizer...")
-        # Verify the existence of the files before loading
-        import os
+        logger.info("Starting the application and loading the model and vectorizer...")
+
         model_path = 'text_classifier_model.pkl'
         vectorizer_path = 'tfidf_vectorizer.pkl'
 
@@ -38,9 +38,21 @@ async def startup_event() -> None:
             logger.error(f"Vectorizer file not found: {vectorizer_path}")
             return
 
-        model = joblib.load(model_path)
-        vectorizer = joblib.load(vectorizer_path)
-        logger.info("Model and vectorizer loaded successfully.")
+        logger.info("Model and vectorizer files found. Attempting to load...")
+
+        try:
+            model = joblib.load(model_path)
+            logger.info("Model loaded successfully.")
+        except Exception as e:
+            logger.error(f"Failed to load model: {e}")
+            raise
+
+        try:
+            vectorizer = joblib.load(vectorizer_path)
+            logger.info("Vectorizer loaded successfully.")
+        except Exception as e:
+            logger.error(f"Failed to load vectorizer: {e}")
+            raise
 
         logger.info("Updating combined feed...")
         await update_combined_feed()
