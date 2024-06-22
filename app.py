@@ -45,7 +45,6 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
 
 def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
     title = entry.get("title", "")
-    link = entry.get("link", "")
     description = entry.get("description", "")
     pub_date_str = entry.get("published", "")
 
@@ -85,7 +84,6 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
 
     return {
         "title": title,
-        "link": link,
         "description": description,
         "pub_date": formatted_pub_date,
         "url": rss_feed_url,
