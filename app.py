@@ -4,28 +4,30 @@ import feedparser
 from datetime import datetime
 import asyncio
 from typing import List, Dict, Any, Optional
-import random
 import logging
+import joblib
+from pydantic import BaseModel
 
 app = FastAPI()
 
 combined_feed: List[Dict[str, Any]] = []
 denied_urls: List[str] = []
-
 feed_lock = asyncio.Lock()
 
-classifications = [
-    "Architectural", "Bricks & Blocks", "Cladding", "Construction Software", "Education",
-    "Environmental", "General Construction", "Glass and Glazing", "Green issues", "Groundworks",
-    "House Building", "Interiors", "Plant & Machinery", "Plumbing and heating", "Public sector",
-    "Roads & Highways", "Roofing", "Solar", "Surveying", "Sustainability", "Tools and accessories",
-    "Waterproofing", "Building Regulations", "Drainage and flood control", "Concrete", "Minerals",
-    "Engineering", "General Construction", "Modular Building", "BIM Technology"
-]
-
-# Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+model = None
+vectorizer = None
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    global model, vectorizer
+    model = joblib.load('text_classifier_model.pkl')
+    vectorizer = joblib.load('tfidf_vectorizer.pkl')
+    await update_combined_feed()
+    asyncio.create_task(refresh_feed_background_task())
 
 
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
@@ -44,6 +46,8 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
 
 
 def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
+    global model, vectorizer
+
     title = entry.get("title", "")
     description = entry.get("description", "")
     pub_date_str = entry.get("published", "")
@@ -62,9 +66,6 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
 
     formatted_pub_date = pub_date.strftime("%Y-%m-%d %H:%M:%S") if pub_date else None
 
-    # Assign a random classification
-    classification = random.choice(classifications)
-
     # Extract image link if available
     image_link = None
     if "media_content" in entry:
@@ -81,6 +82,11 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
             if link["rel"] == "enclosure" and link["type"].startswith("image"):
                 image_link = link["href"]
                 break
+
+    # Combine title and description for classification
+    text = title + ' ' + description
+    X = vectorizer.transform([text])
+    classification = model.predict(X)[0]
 
     return {
         "title": title,
@@ -113,23 +119,21 @@ async def update_combined_feed() -> None:
         feed_data = await fetch_feed_data(rss_feed_url, headers)
         if feed_data:
             parsed_feed = feedparser.parse(feed_data)
-            if parsed_feed.bozo:  # Check if there was a parsing error
+            if parsed_feed.bozo:
                 logger.error(f"Failed to parse feed {rss_feed_url}: {parsed_feed.bozo_exception}")
                 updated_denied_urls.append(rss_feed_url)
                 continue
             for entry in parsed_feed.entries:
-                feed_entry = parse_feed_entry(entry, rss_feed_url)
-                updated_feed.append(feed_entry)
+                try:
+                    feed_entry = parse_feed_entry(entry, rss_feed_url)
+                    updated_feed.append(feed_entry)
+                except Exception as e:
+                    logger.error(f"Error parsing entry in feed {rss_feed_url}: {e}")
 
     async with feed_lock:
         combined_feed = updated_feed
         denied_urls = updated_denied_urls
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    await update_combined_feed()
-    asyncio.create_task(refresh_feed_background_task())
+        logger.info(f"Combined feed updated with {len(updated_feed)} entries. {len(updated_denied_urls)} feeds denied.")
 
 
 @app.get("/combined_feed")
@@ -142,6 +146,19 @@ async def get_combined_feed() -> List[Dict[str, Any]]:
 async def refresh_feed(background_tasks: BackgroundTasks) -> Dict[str, str]:
     background_tasks.add_task(update_combined_feed)
     return {"message": "Feed refresh scheduled"}
+
+
+class Article(BaseModel):
+    title: str
+    description: str
+
+
+@app.post("/classify_article")
+async def classify_article(article: Article) -> Dict[str, Any]:
+    text = article.title + ' ' + article.description
+    X = vectorizer.transform([text])
+    classification = model.predict(X)[0]
+    return {"classification": classification}
 
 
 async def refresh_feed_background_task() -> None:
