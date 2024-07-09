@@ -80,6 +80,7 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
             denied_urls.append(rss_feed_url)
     return None
 
+
 def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
     global model, vectorizer
 
@@ -170,19 +171,27 @@ async def update_combined_feed() -> None:
 
 
 @app.get("/combined_feed")
-async def get_combined_feed(page: int = Query(1, ge=1), size: int = Query(10, ge=1)) -> Dict[str, Any]:
+async def get_combined_feed(
+        page: int = Query(1, ge=1),
+        size: int = Query(10, ge=1),
+        classifications: Optional[List[str]] = Query(None)
+) -> Dict[str, Any]:
     async with feed_lock:
+        filtered_feed = combined_feed
+        if classifications:
+            filtered_feed = [item for item in combined_feed if item['classification'] in classifications]
+
         start_idx = (page - 1) * size
         end_idx = start_idx + size
-        if start_idx >= len(combined_feed):
+        if start_idx >= len(filtered_feed):
             raise HTTPException(status_code=404, detail="Page not found")
-        total_pages = (len(combined_feed) + size - 1) // size  # Calculate total number of pages
+        total_pages = (len(filtered_feed) + size - 1) // size  # Calculate total number of pages
         return {
             "page": page,
             "size": size,
-            "total_items": len(combined_feed),
+            "total_items": len(filtered_feed),
             "total_pages": total_pages,
-            "feed": combined_feed[start_idx:end_idx]
+            "feed": filtered_feed[start_idx:end_idx]
         }
 
 
