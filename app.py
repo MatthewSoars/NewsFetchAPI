@@ -8,9 +8,6 @@ import logging
 import joblib
 import os
 from pydantic import BaseModel
-from ip2geotools.databases.noncommercial import DbIpCity
-from geopy.distance import distance
-import socket
 import urllib.parse
 import tldextract
 
