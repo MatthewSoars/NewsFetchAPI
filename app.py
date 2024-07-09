@@ -1,4 +1,4 @@
-from fastapi import FastAPI, BackgroundTasks
+from fastapi import FastAPI, BackgroundTasks, Query, HTTPException
 import httpx
 import feedparser
 from datetime import datetime
@@ -8,6 +8,11 @@ import logging
 import joblib
 import os
 from pydantic import BaseModel
+from ip2geotools.databases.noncommercial import DbIpCity
+from geopy.distance import distance
+import socket
+import urllib.parse
+import tldextract
 
 app = FastAPI()
 
@@ -81,6 +86,14 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
     return None
 
 
+def get_root_domain(url):
+    parsed_url = urllib.parse.urlparse(url)
+    netloc = parsed_url.netloc
+    extract_result = tldextract.extract(netloc)
+    root_domain = f"{extract_result.domain}.{extract_result.suffix}"
+    return root_domain
+
+
 def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
     global model, vectorizer
 
@@ -102,7 +115,6 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
 
     formatted_pub_date = pub_date.strftime("%Y-%m-%d %H:%M:%S") if pub_date else None
 
-    # Extract image link if available
     image_link = None
     if "media_content" in entry:
         for media in entry["media_content"]:
@@ -119,7 +131,6 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
                 image_link = link["href"]
                 break
 
-    # Combine title and description for classification
     text = title + ' ' + description
     X = vectorizer.transform([text])
     classification = model.predict(X)[0]
@@ -173,9 +184,18 @@ async def update_combined_feed() -> None:
 
 
 @app.get("/combined_feed")
-async def get_combined_feed() -> List[Dict[str, Any]]:
+async def get_combined_feed(page: int = Query(1, ge=1), size: int = Query(10, ge=1)) -> Dict[str, Any]:
     async with feed_lock:
-        return combined_feed
+        start_idx = (page - 1) * size
+        end_idx = start_idx + size
+        if start_idx >= len(combined_feed):
+            raise HTTPException(status_code=404, detail="Page not found")
+        return {
+            "page": page,
+            "size": size,
+            "total": len(combined_feed),
+            "feed": combined_feed[start_idx:end_idx]
+        }
 
 
 @app.post("/refresh_feed")
