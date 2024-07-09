@@ -8,8 +8,6 @@ import logging
 import joblib
 import os
 from pydantic import BaseModel
-import urllib.parse
-import tldextract
 
 app = FastAPI()
 
@@ -81,15 +79,6 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
             logger.error(f"Error fetching RSS feed: {e}")
             denied_urls.append(rss_feed_url)
     return None
-
-
-def get_root_domain(url):
-    parsed_url = urllib.parse.urlparse(url)
-    netloc = parsed_url.netloc
-    extract_result = tldextract.extract(netloc)
-    root_domain = f"{extract_result.domain}.{extract_result.suffix}"
-    return root_domain
-
 
 def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
     global model, vectorizer
