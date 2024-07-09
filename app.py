@@ -176,10 +176,12 @@ async def get_combined_feed(page: int = Query(1, ge=1), size: int = Query(10, ge
         end_idx = start_idx + size
         if start_idx >= len(combined_feed):
             raise HTTPException(status_code=404, detail="Page not found")
+        total_pages = (len(combined_feed) + size - 1) // size  # Calculate total number of pages
         return {
             "page": page,
             "size": size,
-            "total": len(combined_feed),
+            "total_items": len(combined_feed),
+            "total_pages": total_pages,
             "feed": combined_feed[start_idx:end_idx]
         }
 
