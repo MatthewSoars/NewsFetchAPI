@@ -10,12 +10,14 @@ import os
 from pydantic import BaseModel
 from urllib.parse import urlparse
 import socket
-from ip2geotools.databases.noncommercial import DbIpCity
+import geoip2.database
+import dns.asyncresolver
 
 app = FastAPI()
 
 combined_feed: List[Dict[str, Any]] = []
 denied_urls: List[str] = []
+ip_cache: Dict[str, Dict[str, float]] = {}
 feed_lock = asyncio.Lock()
 
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +25,9 @@ logger = logging.getLogger(__name__)
 
 model = None
 vectorizer = None
+
+# Load the GeoIP2 database
+reader = geoip2.database.Reader('GeoLite2-City.mmdb')
 
 
 @app.on_event("startup")
@@ -84,37 +89,32 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
     return None
 
 
-def get_continent_from_ip(ip: str) -> Optional[str]:
+async def get_coordinates_from_ip(ip: str) -> Optional[Dict[str, float]]:
+    if ip in ip_cache:
+        return ip_cache[ip]
     try:
-        response = DbIpCity.get(ip, api_key='free')
-        country_code = response.country
-        continent_mapping = {
-            'AF': 'Africa',
-            'AN': 'Antarctica',
-            'AS': 'Asia',
-            'EU': 'Europe',
-            'NA': 'North America',
-            'OC': 'Oceania',
-            'SA': 'South America'
-        }
-        return continent_mapping.get(country_code)
+        response = reader.city(ip)
+        coordinates = {'latitude': response.location.latitude, 'longitude': response.location.longitude}
+        ip_cache[ip] = coordinates
+        return coordinates
     except Exception as e:
-        logger.error(f"Error getting continent from IP: {e}")
+        logger.error(f"Error getting coordinates from IP: {e}")
     return None
 
 
-def get_domain_location(url: str) -> Optional[str]:
+async def get_domain_coordinates(url: str) -> Optional[Dict[str, float]]:
     try:
         parsed_url = urlparse(url)
         domain = parsed_url.netloc
-        ip = socket.gethostbyname(domain)
-        return get_continent_from_ip(ip)
+        resolver = dns.asyncresolver.Resolver()
+        ip = (await resolver.resolve(domain, 'A'))[0].to_text()
+        return await get_coordinates_from_ip(ip)
     except Exception as e:
-        logger.error(f"Error getting domain location: {e}")
+        logger.error(f"Error getting domain coordinates: {e}")
     return None
 
 
-def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
+async def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
     global model, vectorizer
 
     title = entry.get("title", "")
@@ -155,7 +155,7 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
     X = vectorizer.transform([text])
     classification = model.predict(X)[0]
 
-    location = get_domain_location(rss_feed_url)
+    coordinates = await get_domain_coordinates(rss_feed_url)
 
     return {
         "title": title,
@@ -164,7 +164,8 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
         "url": rss_feed_url,
         "image_link": image_link or "",
         "classification": classification,
-        "location": location or "Unknown"
+        "latitude": coordinates.get('latitude') if coordinates else None,
+        "longitude": coordinates.get('longitude') if coordinates else None
     }
 
 
@@ -185,20 +186,18 @@ async def update_combined_feed() -> None:
     updated_feed = []
     updated_denied_urls = []
 
-    for rss_feed_url in rss_feed_urls:
-        feed_data = await fetch_feed_data(rss_feed_url, headers)
+    tasks = [fetch_feed_data(rss_feed_url, headers) for rss_feed_url in rss_feed_urls]
+    results = await asyncio.gather(*tasks)
+
+    for rss_feed_url, feed_data in zip(rss_feed_urls, results):
         if feed_data:
             parsed_feed = feedparser.parse(feed_data)
             if parsed_feed.bozo:
                 logger.error(f"Failed to parse feed {rss_feed_url}: {parsed_feed.bozo_exception}")
                 updated_denied_urls.append(rss_feed_url)
                 continue
-            for entry in parsed_feed.entries:
-                try:
-                    feed_entry = parse_feed_entry(entry, rss_feed_url)
-                    updated_feed.append(feed_entry)
-                except Exception as e:
-                    logger.error(f"Error parsing entry in feed {rss_feed_url}: {e}")
+            entry_tasks = [parse_feed_entry(entry, rss_feed_url) for entry in parsed_feed.entries]
+            updated_feed.extend(await asyncio.gather(*entry_tasks))
 
     async with feed_lock:
         combined_feed = updated_feed
