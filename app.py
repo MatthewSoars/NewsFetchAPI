@@ -8,6 +8,9 @@ import logging
 import joblib
 import os
 from pydantic import BaseModel
+from urllib.parse import urlparse
+import socket
+from ip2geotools.databases.noncommercial import DbIpCity
 
 app = FastAPI()
 
@@ -81,6 +84,36 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
     return None
 
 
+def get_continent_from_ip(ip: str) -> Optional[str]:
+    try:
+        response = DbIpCity.get(ip, api_key='free')
+        country_code = response.country
+        continent_mapping = {
+            'AF': 'Africa',
+            'AN': 'Antarctica',
+            'AS': 'Asia',
+            'EU': 'Europe',
+            'NA': 'North America',
+            'OC': 'Oceania',
+            'SA': 'South America'
+        }
+        return continent_mapping.get(country_code)
+    except Exception as e:
+        logger.error(f"Error getting continent from IP: {e}")
+    return None
+
+
+def get_domain_location(url: str) -> Optional[str]:
+    try:
+        parsed_url = urlparse(url)
+        domain = parsed_url.netloc
+        ip = socket.gethostbyname(domain)
+        return get_continent_from_ip(ip)
+    except Exception as e:
+        logger.error(f"Error getting domain location: {e}")
+    return None
+
+
 def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
     global model, vectorizer
 
@@ -122,13 +155,16 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
     X = vectorizer.transform([text])
     classification = model.predict(X)[0]
 
+    location = get_domain_location(rss_feed_url)
+
     return {
         "title": title,
         "description": description,
         "pub_date": formatted_pub_date,
         "url": rss_feed_url,
         "image_link": image_link or "",
-        "classification": classification
+        "classification": classification,
+        "location": location or "Unknown"
     }
 
 

@@ -6,3 +6,4 @@ joblib~=1.4.2
 httpx~=0.27.0
 feedparser~=6.0.11
 scikit-learn
+ip2geotools~=0.1.6
