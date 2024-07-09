@@ -10,6 +10,8 @@ import os
 from pydantic import BaseModel
 from ip2geotools.databases.noncommercial import DbIpCity
 import socket
+import urllib.parse
+import tldextract
 
 app = FastAPI()
 
@@ -83,9 +85,18 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
     return None
 
 
+def get_root_domain(url: str) -> str:
+    parsed_url = urllib.parse.urlparse(url)
+    netloc = parsed_url.netloc
+    extract_result = tldextract.extract(netloc)
+    root_domain = f"{extract_result.domain}.{extract_result.suffix}"
+    return root_domain
+
+
 def get_continent_from_url(url: str) -> str:
     try:
-        hostname = socket.gethostbyname(url)
+        root_domain = get_root_domain(url)
+        hostname = socket.gethostbyname(root_domain)
         response = DbIpCity.get(hostname, api_key='free')
         return response.continent
     except Exception as e:
