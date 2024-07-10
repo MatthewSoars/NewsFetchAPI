@@ -25,6 +25,44 @@ logger = logging.getLogger(__name__)
 model = None
 vectorizer = None
 
+continent_mapping = {
+    "AF": "Africa",
+    "AS": "Asia",
+    "EU": "Europe",
+    "NA": "North America",
+    "SA": "South America",
+    "OC": "Oceania",
+    "AN": "Antarctica"
+}
+
+country_to_continent = {
+    "DZ": "AF", "AO": "AF", "BJ": "AF", "BW": "AF", "BF": "AF", "BI": "AF", "CM": "AF", "CV": "AF", "CF": "AF",
+    "TD": "AF", "KM": "AF", "CG": "AF", "DJ": "AF", "EG": "AF", "GQ": "AF", "ER": "AF", "ET": "AF", "GA": "AF",
+    "GM": "AF", "GH": "AF", "GN": "AF", "GW": "AF", "CI": "AF", "KE": "AF", "LS": "AF", "LR": "AF", "LY": "AF",
+    "MG": "AF", "MW": "AF", "ML": "AF", "MR": "AF", "MU": "AF", "YT": "AF", "MA": "AF", "MZ": "AF", "NA": "AF",
+    "NE": "AF", "NG": "AF", "RE": "AF", "RW": "AF", "SH": "AF", "ST": "AF", "SN": "AF", "SC": "AF", "SL": "AF",
+    "SO": "AF", "ZA": "AF", "SS": "AF", "SD": "AF", "SZ": "AF", "TZ": "AF", "TG": "AF", "TN": "AF", "UG": "AF",
+    "EH": "AF", "ZM": "AF", "ZW": "AF", "AQ": "AN", "AE": "AS", "AM": "AS", "AZ": "AS", "BH": "AS", "BD": "AS",
+    "BT": "AS", "BN": "AS", "KH": "AS", "CN": "AS", "CY": "AS", "GE": "AS", "IN": "AS", "ID": "AS", "IR": "AS",
+    "IQ": "AS", "IL": "AS", "JP": "AS", "JO": "AS", "KZ": "AS", "KW": "AS", "KG": "AS", "LA": "AS", "LB": "AS",
+    "MY": "AS", "MV": "AS", "MN": "AS", "MM": "AS", "NP": "AS", "KP": "AS", "OM": "AS", "PK": "AS", "PH": "AS",
+    "QA": "AS", "SA": "AS", "SG": "AS", "KR": "AS", "LK": "AS", "SY": "AS", "TW": "AS", "TJ": "AS", "TH": "AS",
+    "TL": "AS", "TR": "AS", "TM": "AS", "AE": "AS", "UZ": "AS", "VN": "AS", "YE": "AS", "AD": "EU", "AL": "EU",
+    "AT": "EU", "BY": "EU", "BE": "EU", "BA": "EU", "BG": "EU", "HR": "EU", "CY": "EU", "CZ": "EU", "DK": "EU",
+    "EE": "EU", "FO": "EU", "FI": "EU", "FR": "EU", "DE": "EU", "GI": "EU", "GR": "EU", "HU": "EU", "IS": "EU",
+    "IE": "EU", "IT": "EU", "LV": "EU", "LI": "EU", "LT": "EU", "LU": "EU", "MT": "EU", "MD": "EU", "MC": "EU",
+    "ME": "EU", "NL": "EU", "MK": "EU", "NO": "EU", "PL": "EU", "PT": "EU", "RO": "EU", "RU": "EU", "SM": "EU",
+    "RS": "EU", "SK": "EU", "SI": "EU", "ES": "EU", "SE": "EU", "CH": "EU", "UA": "EU", "GB": "EU", "VA": "EU",
+    "AG": "NA", "BS": "NA", "BB": "NA", "BZ": "NA", "BM": "NA", "CA": "NA", "CR": "NA", "CU": "NA", "DM": "NA",
+    "DO": "NA", "SV": "NA", "GD": "NA", "GT": "NA", "HT": "NA", "HN": "NA", "JM": "NA", "MX": "NA", "NI": "NA",
+    "PA": "NA", "PR": "NA", "KN": "NA", "LC": "NA", "VC": "NA", "TT": "NA", "US": "NA", "UM": "NA", "VG": "NA",
+    "VI": "NA", "AR": "SA", "BO": "SA", "BR": "SA", "CL": "SA", "CO": "SA", "EC": "SA", "FK": "SA", "GF": "SA",
+    "GY": "SA", "PY": "SA", "PE": "SA", "SR": "SA", "UY": "SA", "VE": "SA", "AS": "OC", "AU": "OC", "CK": "OC",
+    "FJ": "OC", "PF": "OC", "GU": "OC", "KI": "OC", "MH": "OC", "FM": "OC", "NR": "OC", "NC": "OC", "NZ": "OC",
+    "NU": "OC", "NF": "OC", "MP": "OC", "PW": "OC", "PG": "OC", "PN": "OC", "WS": "OC", "SB": "OC", "TK": "OC",
+    "TO": "OC", "TV": "OC", "VU": "OC", "WF": "OC"
+}
+
 
 def get_root_domain(url: str) -> str:
     parsed_url = urllib.parse.urlparse(url)
@@ -34,14 +72,16 @@ def get_root_domain(url: str) -> str:
     return root_domain
 
 
-def get_country_from_url(url: str) -> str:
+def get_continent_from_url(url: str) -> str:
     try:
         root_domain = get_root_domain(url)
         hostname = socket.gethostbyname(root_domain)
         response = DbIpCity.get(hostname, api_key='free')
-        return response.country
+        country_code = response.country
+        continent_code = country_to_continent.get(country_code, "Unknown")
+        return continent_mapping.get(continent_code, "Unknown")
     except Exception as e:
-        logger.error(f"Error fetching country for {url}: {e}")
+        logger.error(f"Error fetching continent for {url}: {e}")
         return "Unknown"
 
 
@@ -145,7 +185,7 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
     X = vectorizer.transform([text])
     classification = model.predict(X)[0]
 
-    country = get_country_from_url(rss_feed_url)
+    continent = get_continent_from_url(rss_feed_url)
 
     return {
         "title": title,
@@ -154,7 +194,7 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
         "url": rss_feed_url,
         "image_link": image_link or "",
         "classification": classification,
-        "country": country
+        "continent": continent
     }
 
 
