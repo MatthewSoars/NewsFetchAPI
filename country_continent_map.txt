@@ -194,3 +194,4 @@ Vietnam,Asia
 Yemen,Asia
 Zambia,Africa
 Zimbabwe,Africa
+US,North America
