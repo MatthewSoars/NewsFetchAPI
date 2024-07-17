@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 model = None
 vectorizer = None
 tld_country_map: Dict[str, str] = {}
+country_continent_map: Dict[str, str] = {}
 domain_country_cache: Dict[str, str] = {}
 
 CACHE_FILE = 'domain_country_cache.txt'
@@ -42,10 +43,10 @@ def load_country_map(filename: str) -> Dict[str, str]:
     try:
         with open(filename, 'r') as file:
             for line in file:
-                key, country = line.strip().split(',')
-                country_map[key.strip()] = country.strip()
+                key, value = line.strip().split(',')
+                country_map[key.strip()] = value.strip()
     except Exception as e:
-        logger.error(f"Error loading country map from {filename}: {e}")
+        logger.error(f"Error loading map from {filename}: {e}")
     return country_map
 
 
@@ -91,15 +92,21 @@ def get_country_from_url(url: str) -> str:
         return "Unknown"
 
 
+def get_continent_from_country(country: str) -> str:
+    global country_continent_map
+    return country_continent_map.get(country, "Unknown")
+
+
 @app.on_event("startup")
 async def startup_event() -> None:
-    global model, vectorizer, tld_country_map, domain_country_cache
+    global model, vectorizer, tld_country_map, country_continent_map, domain_country_cache
     try:
         logger.info("Starting the application and loading the model, vectorizer, and country maps...")
 
         model_path = 'text_classifier_model.pkl'
         vectorizer_path = 'tfidf_vectorizer.pkl'
         tld_country_map_path = 'tld_country_map.txt'
+        country_continent_map_path = 'country_continent_map.txt'
 
         if not os.path.exists(model_path):
             logger.error(f"Model file not found: {model_path}")
@@ -110,8 +117,11 @@ async def startup_event() -> None:
         if not os.path.exists(tld_country_map_path):
             logger.error(f"TLD country map file not found: {tld_country_map_path}")
             return
+        if not os.path.exists(country_continent_map_path):
+            logger.error(f"Country continent map file not found: {country_continent_map_path}")
+            return
 
-        logger.info("Model, vectorizer, and TLD country map files found. Attempting to load...")
+        logger.info("Model, vectorizer, and country map files found. Attempting to load...")
 
         try:
             model = joblib.load(model_path)
@@ -128,6 +138,7 @@ async def startup_event() -> None:
             raise
 
         tld_country_map = load_country_map(tld_country_map_path)
+        country_continent_map = load_country_map(country_continent_map_path)
         domain_country_cache = load_cache()
         logger.info("Country maps and cache loaded successfully.")
 
@@ -202,8 +213,9 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
     classification = model.predict(X)[0]
 
     country = get_country_from_url(article_url)
+    continent = get_continent_from_country(country)
 
-    logger.info(f"Article Title: {title}, Country: {country}")
+    logger.info(f"Article Title: {title}, Country: {country}, Continent: {continent}")
 
     return {
         "title": title,
@@ -212,7 +224,8 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
         "url": article_url,
         "image_link": image_link or "",
         "classification": classification,
-        "country": country
+        "country": country,
+        "continent": continent
     }
 
 
@@ -258,12 +271,15 @@ async def update_combined_feed() -> None:
 async def get_combined_feed(
         page: int = Query(1, ge=1),
         size: int = Query(10, ge=1),
-        classifications: Optional[List[str]] = Query(None)
+        classifications: Optional[List[str]] = Query(None),
+        continents: Optional[List[str]] = Query(None)
 ) -> Dict[str, Any]:
     async with feed_lock:
         filtered_feed = combined_feed
         if classifications:
             filtered_feed = [item for item in combined_feed if item['classification'] in classifications]
+        if continents:
+            filtered_feed = [item for item in filtered_feed if item['continent'] in continents]
 
         start_idx = (page - 1) * size
         end_idx = start_idx + size
