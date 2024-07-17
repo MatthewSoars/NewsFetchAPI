@@ -37,9 +37,20 @@ def get_root_domain(url: str) -> str:
 def get_country_from_url(url: str) -> str:
     try:
         root_domain = get_root_domain(url)
+        logger.info(f"Root domain extracted: {root_domain}")
+
         hostname = socket.gethostbyname(root_domain)
+        logger.info(f"Hostname resolved: {hostname}")
+
         response = DbIpCity.get(hostname, api_key='free')
-        return response.country
+        logger.info(f"Geo-location response: {response}")
+
+        country = response.country
+        logger.info(f"Country determined: {country}")
+        return country
+    except socket.gaierror as e:
+        logger.error(f"DNS resolution error for {url}: {e}")
+        return "Unknown"
     except Exception as e:
         logger.error(f"Error fetching country for {url}: {e}")
         return "Unknown"
