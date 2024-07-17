@@ -38,13 +38,13 @@ def get_root_domain(url: str) -> str:
     return root_domain
 
 
-def load_country_map(filename: str) -> Dict[str, str]:
+def load_country_map(filename: str) -> Dict[str, Dict[str, str]]:
     country_map = {}
     try:
         with open(filename, 'r') as file:
             for line in file:
-                key, value = line.strip().split(',')
-                country_map[key.strip()] = value.strip()
+                code, country, continent = line.strip().split(',')
+                country_map[country.strip()] = {'code': code.strip(), 'continent': continent.strip()}
     except Exception as e:
         logger.error(f"Error loading map from {filename}: {e}")
     return country_map
@@ -94,7 +94,7 @@ def get_country_from_url(url: str) -> str:
 
 def get_continent_from_country(country: str) -> str:
     global country_continent_map
-    return country_continent_map.get(country, "Unknown")
+    return country_continent_map.get(country, {}).get('continent', "Unknown")
 
 
 @app.on_event("startup")
