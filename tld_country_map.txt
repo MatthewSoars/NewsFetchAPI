@@ -1,0 +1,37 @@
+uk,United Kingdom
+us,United States
+ca,Canada
+au,Australia
+de,Germany
+fr,France
+jp,Japan
+cn,China
+in,India
+br,Brazil
+ru,Russia
+za,South Africa
+kr,South Korea
+it,Italy
+es,Spain
+se,Sweden
+no,Norway
+fi,Finland
+dk,Denmark
+nl,Netherlands
+be,Belgium
+ch,Switzerland
+at,Austria
+mx,Mexico
+ar,Argentina
+cl,Chile
+co,Colombia
+nz,New Zealand
+sg,Singapore
+id,Indonesia
+my,Malaysia
+ph,Philippines
+th,Thailand
+vn,Vietnam
+tr,Turkey
+sa,Saudi Arabia
+ae,United Arab Emirates

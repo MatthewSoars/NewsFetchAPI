@@ -8,3 +8,4 @@ feedparser~=6.0.11
 scikit-learn
 ip2geotools~=0.1.6
 tldextract
+python-whois

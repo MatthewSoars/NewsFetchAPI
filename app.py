@@ -8,10 +8,9 @@ import logging
 import joblib
 import os
 from pydantic import BaseModel
-from ip2geotools.databases.noncommercial import DbIpCity
-import socket
 import urllib.parse
 import tldextract
+import whois
 
 app = FastAPI()
 
@@ -24,6 +23,10 @@ logger = logging.getLogger(__name__)
 
 model = None
 vectorizer = None
+tld_country_map: Dict[str, str] = {}
+domain_country_cache: Dict[str, str] = {}
+
+CACHE_FILE = 'domain_country_cache.txt'
 
 
 def get_root_domain(url: str) -> str:
@@ -34,23 +37,55 @@ def get_root_domain(url: str) -> str:
     return root_domain
 
 
+def load_country_map(filename: str) -> Dict[str, str]:
+    country_map = {}
+    try:
+        with open(filename, 'r') as file:
+            for line in file:
+                key, country = line.strip().split(',')
+                country_map[key.strip()] = country.strip()
+    except Exception as e:
+        logger.error(f"Error loading country map from {filename}: {e}")
+    return country_map
+
+
+def load_cache() -> Dict[str, str]:
+    cache = {}
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, 'r') as file:
+            for line in file:
+                domain, country = line.strip().split(',')
+                cache[domain.strip()] = country.strip()
+    return cache
+
+
+def save_cache(cache: Dict[str, str]) -> None:
+    with open(CACHE_FILE, 'w') as file:
+        for domain, country in cache.items():
+            file.write(f"{domain},{country}\n")
+
+
 def get_country_from_url(url: str) -> str:
+    global tld_country_map, domain_country_cache
     try:
         root_domain = get_root_domain(url)
         logger.info(f"Root domain extracted: {root_domain}")
 
-        hostname = socket.gethostbyname(root_domain)
-        logger.info(f"Hostname resolved: {hostname}")
-
-        response = DbIpCity.get(hostname, api_key='free')
-        logger.info(f"Geo-location response: {response}")
-
-        country = response.country
+        if root_domain in domain_country_cache:
+            country = domain_country_cache[root_domain]
+        else:
+            tld = root_domain.split('.')[-1]
+            country = tld_country_map.get(tld, "Unknown")
+            if country == "Unknown":
+                try:
+                    w = whois.whois(root_domain)
+                    country = w.country if w and w.country else "Unknown"
+                except Exception as e:
+                    logger.error(f"WHOIS lookup failed for {root_domain}: {e}")
+            domain_country_cache[root_domain] = country
+            save_cache(domain_country_cache)
         logger.info(f"Country determined: {country}")
         return country
-    except socket.gaierror as e:
-        logger.error(f"DNS resolution error for {url}: {e}")
-        return "Unknown"
     except Exception as e:
         logger.error(f"Error fetching country for {url}: {e}")
         return "Unknown"
@@ -58,12 +93,13 @@ def get_country_from_url(url: str) -> str:
 
 @app.on_event("startup")
 async def startup_event() -> None:
-    global model, vectorizer
+    global model, vectorizer, tld_country_map, domain_country_cache
     try:
-        logger.info("Starting the application and loading the model and vectorizer...")
+        logger.info("Starting the application and loading the model, vectorizer, and country maps...")
 
         model_path = 'text_classifier_model.pkl'
         vectorizer_path = 'tfidf_vectorizer.pkl'
+        tld_country_map_path = 'tld_country_map.txt'
 
         if not os.path.exists(model_path):
             logger.error(f"Model file not found: {model_path}")
@@ -71,8 +107,11 @@ async def startup_event() -> None:
         if not os.path.exists(vectorizer_path):
             logger.error(f"Vectorizer file not found: {vectorizer_path}")
             return
+        if not os.path.exists(tld_country_map_path):
+            logger.error(f"TLD country map file not found: {tld_country_map_path}")
+            return
 
-        logger.info("Model and vectorizer files found. Attempting to load...")
+        logger.info("Model, vectorizer, and TLD country map files found. Attempting to load...")
 
         try:
             model = joblib.load(model_path)
@@ -87,6 +126,10 @@ async def startup_event() -> None:
         except Exception as e:
             logger.error(f"Failed to load vectorizer: {e}")
             raise
+
+        tld_country_map = load_country_map(tld_country_map_path)
+        domain_country_cache = load_cache()
+        logger.info("Country maps and cache loaded successfully.")
 
         logger.info("Updating combined feed...")
         await update_combined_feed()
@@ -159,6 +202,8 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
     classification = model.predict(X)[0]
 
     country = get_country_from_url(article_url)
+
+    logger.info(f"Article Title: {title}, Country: {country}")
 
     return {
         "title": title,

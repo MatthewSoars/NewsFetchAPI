@@ -1,0 +1,74 @@
+housingtoday.co.uk,United Kingdom
+roofingmagazine.com,US
+buildingtoday.co.nz,New Zealand
+roofingtoday.co.uk,United Kingdom
+thedriller.com,Unknown
+constructionnews.co.nz,New Zealand
+constructionreviewonline.com,US
+standard.co.uk,United Kingdom
+bbc.com,GB
+bbc.co.uk,United Kingdom
+malaysiaconstructionnews.com,Unknown
+pilebuck.com,US
+infrastructurenews.co.nz,New Zealand
+messefrankfurt.com,DE
+brightstar.co.nz,New Zealand
+vietnamconstruction.vn,Vietnam
+eapfp.com,Unknown
+cpnonline.co.uk,United Kingdom
+ukplantoperators.com,GB
+constructionenquirer.com,GB
+europeandemolition.org,ES
+tradiemagazine.com.au,Australia
+theconstructor.org,US
+eubac.org,DE
+buildingproducts.co.uk,United Kingdom
+pbctoday.co.uk,United Kingdom
+probuildermag.co.uk,United Kingdom
+eapa.org,BE
+plantandcivilengineer.com,US
+connectedworld.com,US
+canadiancontractor.ca,Canada
+bdonline.co.uk,United Kingdom
+acla.com.au,Australia
+europanels.org,BE
+canadianconsultingengineer.com,CA
+thecea.org.uk,United Kingdom
+construction-today.com,US
+csengineermag.com,CA
+equipmentjournal.com,CA
+build.com.au,Australia
+theplanner.co.uk,United Kingdom
+constructionspecifier.com,REDACTED FOR PRIVACY
+constructionmaguk.co.uk,United Kingdom
+probuilder.com,US
+plumbingmag.com,GB
+trenchless-australasia.com,AU
+constructionbusinessowner.com,US
+constructforstl.org,US
+constructiondive.com,IS
+srilankaconstruction.com,IS
+constructionplusasia.com,US
+buildingandfacilitiesnews.co.uk,United Kingdom
+roadsonline.com.au,Australia
+constructioncanada.net,REDACTED FOR PRIVACY
+house-builder.co.uk,United Kingdom
+einnews.com,US
+insideconstruction.com.au,Australia
+ancr.com.au,Australia
+ebc-construction.eu,Unknown
+modbs.co.uk,United Kingdom
+sourceable.net,AU
+ccemagazine.com,US
+infrastructuremagazine.com.au,Australia
+homebuilding.co.uk,United Kingdom
+bibm.eu,Unknown
+ukconstructionmedia.co.uk,United Kingdom
+hvpmag.co.uk,United Kingdom
+philippinesconstruction.com,PH
+constructionlinks.ca,Canada
+enr.com,US
+bdcmagazine.com,US
+ccr-mag.com,US
+mcsmag.com,US
+worldconstructiontoday.com,US
