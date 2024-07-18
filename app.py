@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 model = None
 vectorizer = None
 tld_country_map: Dict[str, str] = {}
-country_continent_map: Dict[str, str] = {}
+country_continent_map: Dict[str, Dict[str, str]] = {}
 domain_country_cache: Dict[str, str] = {}
 
 CACHE_FILE = 'domain_country_cache.txt'
@@ -96,6 +96,9 @@ def get_continent_from_country(country: str) -> str:
     global country_continent_map
     return country_continent_map.get(country, {}).get('continent', "Unknown")
 
+
+def url_friendly_classification(classification: str) -> str:
+    return classification.lower().replace(" ", "-")
 
 @app.on_event("startup")
 async def startup_event() -> None:
@@ -210,7 +213,7 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
 
     text = title + ' ' + description
     X = vectorizer.transform([text])
-    classification = model.predict(X)[0]
+    classification = url_friendly_classification(model.predict(X)[0])
 
     country = get_country_from_url(article_url)
     continent = get_continent_from_country(country)
@@ -277,6 +280,7 @@ async def get_combined_feed(
     async with feed_lock:
         filtered_feed = combined_feed
         if classifications:
+            classifications = [url_friendly_classification(cls) for cls in classifications]
             filtered_feed = [item for item in combined_feed if item['classification'] in classifications]
         if continents:
             filtered_feed = [item for item in filtered_feed if item['continent'] in continents]
@@ -310,7 +314,7 @@ class Article(BaseModel):
 async def classify_article(article: Article) -> Dict[str, Any]:
     text = article.title + ' ' + article.description
     X = vectorizer.transform([text])
-    classification = model.predict(X)[0]
+    classification = url_friendly_classification(model.predict(X)[0])
     return {"classification": classification}
 
 
