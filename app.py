@@ -214,7 +214,8 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
 
     text = title + ' ' + description
     X = vectorizer.transform([text])
-    classification = url_friendly_classification(model.predict(X)[0])
+    original_classification = model.predict(X)[0]
+    classification = url_friendly_classification(original_classification)
 
     country = get_country_from_url(article_url)
     continent = get_continent_from_country(country)
@@ -227,7 +228,7 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
         "pub_date": formatted_pub_date,
         "url": article_url,
         "image_link": image_link or "",
-        "classification": classification,
+        "classification": original_classification,
         "country": country,
         "continent": continent
     }
@@ -281,8 +282,8 @@ async def get_combined_feed(
     async with feed_lock:
         filtered_feed = combined_feed
         if classifications:
-            classifications = [url_friendly_classification(cls) for cls in classifications]
-            filtered_feed = [item for item in combined_feed if item['classification'] in classifications]
+            url_friendly_classifications = [url_friendly_classification(cls) for cls in classifications]
+            filtered_feed = [item for item in combined_feed if url_friendly_classification(item['classification']) in url_friendly_classifications]
         if continents:
             continents = [cont.lower() for cont in continents]
             filtered_feed = [item for item in filtered_feed if item['continent'] in continents]
@@ -316,8 +317,9 @@ class Article(BaseModel):
 async def classify_article(article: Article) -> Dict[str, Any]:
     text = article.title + ' ' + article.description
     X = vectorizer.transform([text])
-    classification = url_friendly_classification(model.predict(X)[0])
-    return {"classification": classification}
+    original_classification = model.predict(X)[0]
+    classification = url_friendly_classification(original_classification)
+    return {"classification": original_classification}
 
 
 async def refresh_feed_background_task() -> None:
