@@ -44,7 +44,7 @@ def load_country_map(filename: str) -> Dict[str, Dict[str, str]]:
         with open(filename, 'r') as file:
             for line in file:
                 code, country, continent = line.strip().split(',')
-                country_map[country.strip()] = {'code': code.strip(), 'continent': continent.strip().lower()}
+                country_map[country.strip()] = {'code': code.strip(), 'continent': continent.strip()}
     except Exception as e:
         logger.error(f"Error loading map from {filename}: {e}")
     return country_map
@@ -97,8 +97,8 @@ def get_continent_from_country(country: str) -> str:
     return country_continent_map.get(country, {}).get('continent', "unknown")
 
 
-def url_friendly_classification(classification: str) -> str:
-    return classification.lower().replace(" ", "-")
+def url_friendly_format(text: str) -> str:
+    return text.lower().replace(" ", "-")
 
 
 @app.on_event("startup")
@@ -215,7 +215,7 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
     text = title + ' ' + description
     X = vectorizer.transform([text])
     original_classification = model.predict(X)[0]
-    classification = url_friendly_classification(original_classification)
+    classification = url_friendly_format(original_classification)
 
     country = get_country_from_url(article_url)
     continent = get_continent_from_country(country)
@@ -229,6 +229,7 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
         "url": article_url,
         "image_link": image_link or "",
         "classification": original_classification,
+        "country": country,
         "continent": continent
     }
 
@@ -281,11 +282,11 @@ async def get_combined_feed(
     async with feed_lock:
         filtered_feed = combined_feed
         if classifications:
-            url_friendly_classifications = [url_friendly_classification(cls) for cls in classifications]
-            filtered_feed = [item for item in combined_feed if url_friendly_classification(item['classification']) in url_friendly_classifications]
+            url_friendly_classifications = [url_friendly_format(cls) for cls in classifications]
+            filtered_feed = [item for item in combined_feed if url_friendly_format(item['classification']) in url_friendly_classifications]
         if continents:
-            continents = [cont.lower() for cont in continents]
-            filtered_feed = [item for item in filtered_feed if item['continent'] in continents]
+            url_friendly_continents = [url_friendly_format(cont) for cont in continents]
+            filtered_feed = [item for item in filtered_feed if url_friendly_format(item['continent']) in url_friendly_continents]
 
         start_idx = (page - 1) * size
         end_idx = start_idx + size
@@ -317,7 +318,7 @@ async def classify_article(article: Article) -> Dict[str, Any]:
     text = article.title + ' ' + article.description
     X = vectorizer.transform([text])
     original_classification = model.predict(X)[0]
-    classification = url_friendly_classification(original_classification)
+    classification = url_friendly_format(original_classification)
     return {"classification": original_classification}
 
 
