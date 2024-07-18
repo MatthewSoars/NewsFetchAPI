@@ -44,7 +44,7 @@ def load_country_map(filename: str) -> Dict[str, Dict[str, str]]:
         with open(filename, 'r') as file:
             for line in file:
                 code, country, continent = line.strip().split(',')
-                country_map[country.strip()] = {'code': code.strip(), 'continent': continent.strip()}
+                country_map[country.strip()] = {'code': code.strip(), 'continent': continent.strip().lower()}
     except Exception as e:
         logger.error(f"Error loading map from {filename}: {e}")
     return country_map
@@ -94,11 +94,12 @@ def get_country_from_url(url: str) -> str:
 
 def get_continent_from_country(country: str) -> str:
     global country_continent_map
-    return country_continent_map.get(country, {}).get('continent', "Unknown")
+    return country_continent_map.get(country, {}).get('continent', "unknown")
 
 
 def url_friendly_classification(classification: str) -> str:
     return classification.lower().replace(" ", "-")
+
 
 @app.on_event("startup")
 async def startup_event() -> None:
@@ -283,6 +284,7 @@ async def get_combined_feed(
             classifications = [url_friendly_classification(cls) for cls in classifications]
             filtered_feed = [item for item in combined_feed if item['classification'] in classifications]
         if continents:
+            continents = [cont.lower() for cont in continents]
             filtered_feed = [item for item in filtered_feed if item['continent'] in continents]
 
         start_idx = (page - 1) * size
