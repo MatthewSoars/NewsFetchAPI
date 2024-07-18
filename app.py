@@ -229,7 +229,6 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
         "url": article_url,
         "image_link": image_link or "",
         "classification": original_classification,
-        "country": country,
         "continent": continent
     }
 
