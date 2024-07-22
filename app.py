@@ -12,6 +12,7 @@ from pydantic import BaseModel
 import urllib.parse
 import tldextract
 import whois
+import time
 
 app = FastAPI()
 
@@ -37,7 +38,6 @@ EXPECTED_VECTOR_HASH = "2fa997a8fe5fb0930fd0fa31c9e6d01202fe4389753ae866b09e4194
 EXPECTED_MLB_HASH = "3ffeacff2262897dab960a184728ad03d26e84a102f96741dd4bc7e34a63e8ae"
 
 CACHE_FILE = 'domain_country_cache.txt'
-tld_country_map: Dict[str, str] = {}
 country_continent_map: Dict[str, Dict[str, str]] = {}
 domain_country_cache: Dict[str, str] = {}
 
@@ -60,12 +60,11 @@ async def download_file(url, filepath):
 
 @app.on_event("startup")
 async def startup_event() -> None:
-    global model, vectorizer, mlb, tld_country_map, country_continent_map, domain_country_cache
+    global model, vectorizer, mlb, country_continent_map, domain_country_cache
     try:
         model_path = 'text_classifier_model.pkl'
         vectorizer_path = 'tfidf_vectorizer.pkl'
         mlb_path = 'mlb.pkl'
-        tld_country_map_path = 'tld_country_map.txt'
         country_continent_map_path = 'country_continent_map.txt'
 
         logger.info("Downloading model...")
@@ -102,21 +101,13 @@ async def startup_event() -> None:
         logger.info("MultiLabelBinarizer loaded successfully.")
 
         logger.info("Loading country maps and cache...")
-        if not os.path.exists(tld_country_map_path):
-            logger.error(f"TLD country map file not found: {tld_country_map_path}")
-            return
         if not os.path.exists(country_continent_map_path):
             logger.error(f"Country continent map file not found: {country_continent_map_path}")
             return
 
-        tld_country_map = load_country_map(tld_country_map_path)
         country_continent_map = load_country_map(country_continent_map_path)
         domain_country_cache = load_cache()
         logger.info("Country maps and cache loaded successfully.")
-
-        logger.info("Updating combined feed...")
-        await update_combined_feed()
-        logger.info("Combined feed updated successfully.")
 
         logger.info("Starting the background task for refreshing feed...")
         asyncio.create_task(refresh_feed_background_task())
@@ -141,6 +132,7 @@ def load_country_map(filename: str) -> Dict[str, Dict[str, str]]:
             for line in file:
                 code, country, continent = line.strip().split(',')
                 country_map[country.strip()] = {'code': code.strip(), 'continent': continent.strip()}
+                country_map[code.strip()] = {'country': country.strip(), 'continent': continent.strip()}
     except Exception as e:
         logger.error(f"Error loading map from {filename}: {e}")
     return country_map
@@ -163,25 +155,20 @@ def save_cache(cache: Dict[str, str]) -> None:
 
 
 def get_country_from_url(url: str) -> str:
-    global tld_country_map, domain_country_cache
+    global country_continent_map, domain_country_cache
     try:
         root_domain = get_root_domain(url)
-        logger.info(f"Root domain extracted: {root_domain}")
-
         if root_domain in domain_country_cache:
             country = domain_country_cache[root_domain]
         else:
-            tld = root_domain.split('.')[-1]
-            country = tld_country_map.get(tld, "Unknown")
-            if country == "Unknown":
-                try:
-                    w = whois.whois(root_domain)
-                    country = w.country if w and w.country else "Unknown"
-                except Exception as e:
-                    logger.error(f"WHOIS lookup failed for {root_domain}: {e}")
+            try:
+                w = whois.whois(root_domain)
+                country = w.country if w and w.country else "Unknown"
+            except Exception as e:
+                logger.error(f"WHOIS lookup failed for {root_domain}: {e}")
+                country = "Unknown"
             domain_country_cache[root_domain] = country
             save_cache(domain_country_cache)
-        logger.info(f"Country determined: {country}")
         return country
     except Exception as e:
         logger.error(f"Error fetching country for {url}: {e}")
@@ -190,7 +177,8 @@ def get_country_from_url(url: str) -> str:
 
 def get_continent_from_country(country: str) -> str:
     global country_continent_map
-    return country_continent_map.get(country, {}).get('continent', "unknown")
+    country_info = country_continent_map.get(country) or country_continent_map.get(country_continent_map.get(country, {}).get('country', ''))
+    return country_info['continent'] if country_info else "unknown"
 
 
 def url_friendly_format(text: str) -> str:
@@ -252,25 +240,41 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
     article_url = entry.get("link", rss_feed_url)
 
     text = title + ' ' + description
-    X = vectorizer.transform([text])
-    original_classification = mlb.inverse_transform(model.predict(X))[0]
-    classification = url_friendly_format(", ".join(original_classification))
 
-    country = get_country_from_url(article_url)
-    continent = get_continent_from_country(country)
+    try:
+        X = vectorizer.transform([text])
+        predictions = model.predict(X)
+        original_classification = mlb.inverse_transform(predictions)[0]
+        classification = url_friendly_format(", ".join(original_classification))
 
-    logger.info(f"Article Title: {title}, Country: {country}, Continent: {continent}")
+        root_domain = get_root_domain(article_url)
+        country = get_country_from_url(article_url)
+        continent = get_continent_from_country(country)
 
-    return {
-        "title": title,
-        "description": description,
-        "pub_date": formatted_pub_date,
-        "url": article_url,
-        "image_link": image_link or "",
-        "classification": classification,
-        "country": country,
-        "continent": continent
-    }
+        logger.info(f"Article Title: {title}, Classification: {classification}, Root domain: {root_domain}, Country: {country}, Continent: {continent}")
+
+        return {
+            "title": title,
+            "description": description,
+            "pub_date": formatted_pub_date,
+            "url": article_url,
+            "image_link": image_link or "",
+            "classification": classification,
+            "country": country,
+            "continent": continent
+        }
+    except Exception as e:
+        logger.error(f"Error classifying entry: {e}")
+        return {
+            "title": title,
+            "description": description,
+            "pub_date": formatted_pub_date,
+            "url": article_url,
+            "image_link": image_link or "",
+            "classification": "uncategorized",
+            "country": get_country_from_url(article_url),
+            "continent": get_continent_from_country(get_country_from_url(article_url))
+        }
 
 
 async def update_combined_feed() -> None:
@@ -286,6 +290,15 @@ async def update_combined_feed() -> None:
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3"
     }
+
+    # Get worker index and total workers from environment variables
+    worker_index = int(os.getenv("WORKER_INDEX", "0"))
+    total_workers = int(os.getenv("TOTAL_WORKERS", "1"))
+
+    logger.info(f"Worker {worker_index} of {total_workers} starting feed update")
+
+    # Split the RSS feed URLs among workers
+    rss_feed_urls = [rss_feed_urls[i] for i in range(worker_index, len(rss_feed_urls), total_workers)]
 
     updated_feed = []
     updated_denied_urls = []
@@ -306,9 +319,9 @@ async def update_combined_feed() -> None:
                     logger.error(f"Error parsing entry in feed {rss_feed_url}: {e}")
 
     async with feed_lock:
-        combined_feed = updated_feed
-        denied_urls = updated_denied_urls
-        logger.info(f"Combined feed updated with {len(updated_feed)} entries. {len(updated_denied_urls)} feeds denied.")
+        combined_feed.extend(updated_feed)
+        denied_urls.extend(updated_denied_urls)
+        logger.info(f"Worker {worker_index} updated combined feed with {len(updated_feed)} entries. {len(updated_denied_urls)} feeds denied.")
 
 
 @app.get("/combined_feed")
@@ -354,14 +367,24 @@ class Article(BaseModel):
 
 @app.post("/classify_article")
 async def classify_article(article: Article) -> Dict[str, Any]:
+    start_time = time.time()
     text = article.title + ' ' + article.description
-    X = vectorizer.transform([text])
-    original_classification = mlb.inverse_transform(model.predict(X))[0]
-    classification = url_friendly_format(", ".join(original_classification))
-    return {"classification": original_classification}
+
+    try:
+        X = vectorizer.transform([text])
+        predictions = model.predict(X)
+        original_classification = mlb.inverse_transform(predictions)[0]
+        classification = url_friendly_format(", ".join(original_classification))
+
+        logger.info(f"Article classified in {time.time() - start_time:.2f} seconds. Classification: {classification}")
+        return {"classification": original_classification}
+    except Exception as e:
+        logger.error(f"Error classifying article: {e}")
+        return {"classification": ["uncategorized"]}
 
 
 async def refresh_feed_background_task() -> None:
+    await asyncio.sleep(10)  # Delay the first execution to avoid running immediately after startup
     while True:
         try:
             logger.info("Refreshing combined feed in background task...")
