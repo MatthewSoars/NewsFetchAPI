@@ -11,6 +11,7 @@ from pydantic import BaseModel
 import urllib.parse
 import tldextract
 import whois
+import hashlib
 
 app = FastAPI()
 
@@ -29,6 +30,14 @@ country_continent_map: Dict[str, Dict[str, str]] = {}
 domain_country_cache: Dict[str, str] = {}
 
 CACHE_FILE = 'domain_country_cache.txt'
+
+
+def generate_file_hash(filepath):
+    sha256_hash = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        for byte_block in iter(lambda: f.read(4096), b""):
+            sha256_hash.update(byte_block)
+    return sha256_hash.hexdigest()
 
 
 def get_root_domain(url: str) -> str:
@@ -133,6 +142,7 @@ async def startup_event() -> None:
         logger.info("Model, vectorizer, and country map files found. Attempting to load...")
 
         try:
+            logger.info(f"Model file hash: {generate_file_hash(model_path)}")
             model = joblib.load(model_path)
             logger.info("Model loaded successfully.")
         except Exception as e:
@@ -140,6 +150,7 @@ async def startup_event() -> None:
             raise
 
         try:
+            logger.info(f"Vectorizer file hash: {generate_file_hash(vectorizer_path)}")
             vectorizer = joblib.load(vectorizer_path)
             logger.info("Vectorizer loaded successfully.")
         except Exception as e:
@@ -147,6 +158,7 @@ async def startup_event() -> None:
             raise
 
         try:
+            logger.info(f"MLB file hash: {generate_file_hash(mlb_path)}")
             mlb = joblib.load(mlb_path)
             logger.info("MLB loaded successfully.")
         except Exception as e:
@@ -186,7 +198,7 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
 
 
 def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
-    global model, vectorizer, mlb
+    global model, vectorizer
 
     title = entry.get("title", "")
     description = entry.get("description", "")
@@ -226,8 +238,8 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
 
     text = title + ' ' + description
     X = vectorizer.transform([text])
-    original_classifications = mlb.inverse_transform(model.predict(X))[0]
-    classifications = [url_friendly_format(c) for c in original_classifications]
+    original_classification = model.predict(X)[0]
+    classification = url_friendly_format(original_classification)
 
     country = get_country_from_url(article_url)
     continent = get_continent_from_country(country)
@@ -240,7 +252,7 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
         "pub_date": formatted_pub_date,
         "url": article_url,
         "image_link": image_link or "",
-        "classification": original_classifications,
+        "classification": original_classification,
         "country": country,
         "continent": continent
     }
@@ -295,10 +307,12 @@ async def get_combined_feed(
         filtered_feed = combined_feed
         if classifications:
             url_friendly_classifications = [url_friendly_format(cls) for cls in classifications]
-            filtered_feed = [item for item in combined_feed if any(url_friendly_format(cls) in item['classification'] for cls in url_friendly_classifications)]
+            filtered_feed = [item for item in combined_feed if
+                             url_friendly_format(item['classification']) in url_friendly_classifications]
         if continents:
             url_friendly_continents = [url_friendly_format(cont) for cont in continents]
-            filtered_feed = [item for item in filtered_feed if url_friendly_format(item['continent']) in url_friendly_continents]
+            filtered_feed = [item for item in filtered_feed if
+                             url_friendly_format(item['continent']) in url_friendly_continents]
 
         start_idx = (page - 1) * size
         end_idx = start_idx + size
@@ -329,9 +343,9 @@ class Article(BaseModel):
 async def classify_article(article: Article) -> Dict[str, Any]:
     text = article.title + ' ' + article.description
     X = vectorizer.transform([text])
-    original_classifications = mlb.inverse_transform(model.predict(X))[0]
-    classifications = [url_friendly_format(c) for c in original_classifications]
-    return {"classification": original_classifications}
+    original_classification = model.predict(X)[0]
+    classification = url_friendly_format(original_classification)
+    return {"classification": original_classification}
 
 
 async def refresh_feed_background_task() -> None:
