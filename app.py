@@ -166,8 +166,6 @@ def get_country_from_url(url: str) -> str:
     global tld_country_map, domain_country_cache
     try:
         root_domain = get_root_domain(url)
-        logger.info(f"Root domain extracted: {root_domain}")
-
         if root_domain in domain_country_cache:
             country = domain_country_cache[root_domain]
         else:
@@ -181,7 +179,6 @@ def get_country_from_url(url: str) -> str:
                     logger.error(f"WHOIS lookup failed for {root_domain}: {e}")
             domain_country_cache[root_domain] = country
             save_cache(domain_country_cache)
-        logger.info(f"Country determined: {country}")
         return country
     except Exception as e:
         logger.error(f"Error fetching country for {url}: {e}")
@@ -259,7 +256,13 @@ def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]
     country = get_country_from_url(article_url)
     continent = get_continent_from_country(country)
 
-    logger.info(f"Article Title: {title}, Country: {country}, Continent: {continent}")
+    combined_info = (
+        f"Article Title: {title}, "
+        f"Country: {country}, "
+        f"Continent: {continent}, "
+        f"Classification: {classification}"
+    )
+    logger.info(combined_info)
 
     return {
         "title": title,
