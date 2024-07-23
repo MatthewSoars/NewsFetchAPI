@@ -209,71 +209,82 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
     return None
 
 
-def parse_feed_entry(entry: Dict[str, Any], rss_feed_url: str) -> Dict[str, Any]:
+async def parse_feed_entries(entries: List[Dict[str, Any]], rss_feed_url: str) -> List[Dict[str, Any]]:
     global model, vectorizer, mlb
 
-    title = entry.get("title", "")
-    description = entry.get("description", "")
-    pub_date_str = entry.get("published", "")
+    if not entries:
+        return []
 
-    pub_date = None
-    formats_to_try = [
-        "%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S", "%a, %d %b %Y %H:%M %z",
-        "%a, %d %b %Y %H:%M", "%a, %d %b %Y %H:%M:%S GMT", "%Y-%m-%dT%H:%M:%S%z"
-    ]
-    for date_format in formats_to_try:
-        try:
-            pub_date = datetime.strptime(pub_date_str, date_format)
-            break
-        except ValueError:
-            continue
+    texts = [entry.get("title", "") + ' ' + entry.get("description", "") for entry in entries if entry.get("title") or entry.get("description")]
+    if not texts:
+        return []
 
-    formatted_pub_date = pub_date.strftime("%Y-%m-%d %H:%M:%S") if pub_date else None
+    X = vectorizer.transform(texts)
+    classifications = mlb.inverse_transform(model.predict(X))
 
-    image_link = None
-    if "media_content" in entry:
-        for media in entry["media_content"]:
-            if "url" in media:
-                image_link = media["url"]
+    parsed_entries = []
+
+    for entry, classification in zip(entries, classifications):
+        title = entry.get("title", "")
+        description = entry.get("description", "")
+        pub_date_str = entry.get("published", "")
+
+        pub_date = None
+        formats_to_try = [
+            "%a, %d %b %Y %H:%M:%S %z", "%a, %d %b %Y %H:%M:%S", "%a, %d %b %Y %H:%M %z",
+            "%a, %d %b %Y %H:%M", "%a, %d %b %Y %H:%M:%S GMT", "%Y-%m-%dT%H:%M:%S%z"
+        ]
+        for date_format in formats_to_try:
+            try:
+                pub_date = datetime.strptime(pub_date_str, date_format)
                 break
+            except ValueError:
+                continue
 
-    if not image_link and "media_thumbnail" in entry:
-        image_link = entry["media_thumbnail"][0]["url"]
+        formatted_pub_date = pub_date.strftime("%Y-%m-%d %H:%M:%S") if pub_date else None
 
-    if not image_link and "links" in entry:
-        for link in entry["links"]:
-            if link["rel"] == "enclosure" and link["type"].startswith("image"):
-                image_link = link["href"]
-                break
+        image_link = None
+        if "media_content" in entry:
+            for media in entry["media_content"]:
+                if "url" in media:
+                    image_link = media["url"]
+                    break
 
-    article_url = entry.get("link", rss_feed_url)
+        if not image_link and "media_thumbnail" in entry:
+            image_link = entry["media_thumbnail"][0]["url"]
 
-    text = title + ' ' + description
-    X = vectorizer.transform([text])
-    original_classification = mlb.inverse_transform(model.predict(X))[0]
-    classification = url_friendly_format(", ".join(original_classification))
+        if not image_link and "links" in entry:
+            for link in entry["links"]:
+                if link["rel"] == "enclosure" and link["type"].startswith("image"):
+                    image_link = link["href"]
+                    break
 
-    country = get_country_from_url(article_url)
-    continent = get_continent_from_country(country)
+        article_url = entry.get("link", rss_feed_url)
+        classification_str = url_friendly_format(", ".join(classification))
 
-    combined_info = (
-        f"Article Title: {title}, "
-        f"Country: {country}, "
-        f"Continent: {continent}, "
-        f"Classification: {classification}"
-    )
-    logger.info(combined_info)
+        country = get_country_from_url(article_url)
+        continent = get_continent_from_country(country)
 
-    return {
-        "title": title,
-        "description": description,
-        "pub_date": formatted_pub_date,
-        "url": article_url,
-        "image_link": image_link or "",
-        "classification": classification,
-        "country": country,
-        "continent": continent
-    }
+        combined_info = (
+            f"Article Title: {title}, "
+            f"Country: {country}, "
+            f"Continent: {continent}, "
+            f"Classification: {classification_str}"
+        )
+        logger.info(combined_info)
+
+        parsed_entries.append({
+            "title": title,
+            "description": description,
+            "pub_date": formatted_pub_date,
+            "url": article_url,
+            "image_link": image_link or "",
+            "classification": classification_str,
+            "country": country,
+            "continent": continent
+        })
+
+    return parsed_entries
 
 
 async def update_combined_feed() -> None:
@@ -293,20 +304,21 @@ async def update_combined_feed() -> None:
     updated_feed = []
     updated_denied_urls = []
 
+    tasks = []
     for rss_feed_url in rss_feed_urls:
-        feed_data = await fetch_feed_data(rss_feed_url, headers)
+        tasks.append(fetch_feed_data(rss_feed_url, headers))
+
+    results = await asyncio.gather(*tasks)
+
+    for rss_feed_url, feed_data in zip(rss_feed_urls, results):
         if feed_data:
             parsed_feed = feedparser.parse(feed_data)
             if parsed_feed.bozo:
                 logger.error(f"Failed to parse feed {rss_feed_url}: {parsed_feed.bozo_exception}")
                 updated_denied_urls.append(rss_feed_url)
                 continue
-            for entry in parsed_feed.entries:
-                try:
-                    feed_entry = parse_feed_entry(entry, rss_feed_url)
-                    updated_feed.append(feed_entry)
-                except Exception as e:
-                    logger.error(f"Error parsing entry in feed {rss_feed_url}: {e}")
+            parsed_entries = await parse_feed_entries(parsed_feed.entries, rss_feed_url)
+            updated_feed.extend(parsed_entries)
 
     async with feed_lock:
         combined_feed = updated_feed
