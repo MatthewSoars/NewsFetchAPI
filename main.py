@@ -6,5 +6,6 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         log_level="info",
-        reload=True  # Enables auto-reload in development mode
+        reload=False,  # Enables auto-reload in development mode
+        workers=1  # Ensures only one worker is used
     )
