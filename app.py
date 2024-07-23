@@ -1,6 +1,7 @@
 import os
 import hashlib
 import httpx
+import json
 from fastapi import FastAPI, BackgroundTasks, Query, HTTPException
 import joblib
 import logging
@@ -37,6 +38,7 @@ EXPECTED_VECTOR_HASH = "2fa997a8fe5fb0930fd0fa31c9e6d01202fe4389753ae866b09e4194
 EXPECTED_MLB_HASH = "3ffeacff2262897dab960a184728ad03d26e84a102f96741dd4bc7e34a63e8ae"
 
 CACHE_FILE = 'domain_country_cache.txt'
+COMBINED_FEED_FILE = 'combined_feed.json'
 tld_country_map: Dict[str, str] = {}
 country_continent_map: Dict[str, Dict[str, str]] = {}
 domain_country_cache: Dict[str, str] = {}
@@ -60,7 +62,7 @@ async def download_file(url, filepath):
 
 @app.on_event("startup")
 async def startup_event() -> None:
-    global model, vectorizer, mlb, tld_country_map, country_continent_map, domain_country_cache
+    global model, vectorizer, mlb, tld_country_map, country_continent_map, domain_country_cache, combined_feed
     try:
         model_path = 'text_classifier_model.pkl'
         vectorizer_path = 'tfidf_vectorizer.pkl'
@@ -114,9 +116,9 @@ async def startup_event() -> None:
         domain_country_cache = load_cache()
         logger.info("Country maps and cache loaded successfully.")
 
-        logger.info("Updating combined feed...")
-        await update_combined_feed()
-        logger.info("Combined feed updated successfully.")
+        logger.info("Loading combined feed from file...")
+        combined_feed = load_combined_feed()
+        logger.info("Combined feed loaded successfully.")
 
         logger.info("Starting the background task for refreshing feed...")
         asyncio.create_task(refresh_feed_background_task())
@@ -324,6 +326,19 @@ async def update_combined_feed() -> None:
         combined_feed = updated_feed
         denied_urls = updated_denied_urls
         logger.info(f"Combined feed updated with {len(updated_feed)} entries. {len(updated_denied_urls)} feeds denied.")
+        save_combined_feed(combined_feed)
+
+
+def load_combined_feed() -> List[Dict[str, Any]]:
+    if os.path.exists(COMBINED_FEED_FILE):
+        with open(COMBINED_FEED_FILE, 'r') as file:
+            return json.load(file)
+    return []
+
+
+def save_combined_feed(feed: List[Dict[str, Any]]) -> None:
+    with open(COMBINED_FEED_FILE, 'w') as file:
+        json.dump(feed, file)
 
 
 @app.get("/combined_feed")
