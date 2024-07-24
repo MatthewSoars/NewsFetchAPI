@@ -13,29 +13,34 @@ from pydantic import BaseModel
 import urllib.parse
 import tldextract
 import whois
+from concurrent.futures import ThreadPoolExecutor
 
 app = FastAPI()
 
 combined_feed: List[Dict[str, Any]] = []
 denied_urls: List[str] = []
 feed_lock = asyncio.Lock()
+model_lock = asyncio.Lock()
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-model = None
+binary_model = None
+detailed_model = None
 vectorizer = None
 mlb = None
 
 # URLs to download the files from DigitalOcean Spaces
-MODEL_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/text_classifier_model.pkl"
-VECTOR_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/tfidf_vectorizer.pkl"
-MLB_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/mlb.pkl"
+BINARY_MODEL_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v3_binary_classifier_model.pkl"
+DETAILED_MODEL_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v3_detailed_classifier_model.pkl"
+VECTOR_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v3_tfidf_vectorizer.pkl"
+MLB_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v3_mlb.pkl"
 
 # Expected file hashes
-EXPECTED_MODEL_HASH = "eca04b84942bcb1aed6bd8f49a6b310b97c497b258006bd20d93860d9b81909b"
-EXPECTED_VECTOR_HASH = "2fa997a8fe5fb0930fd0fa31c9e6d01202fe4389753ae866b09e41945797e243"
-EXPECTED_MLB_HASH = "3ffeacff2262897dab960a184728ad03d26e84a102f96741dd4bc7e34a63e8ae"
+EXPECTED_BINARY_MODEL_HASH = "6da8dd301d1c15447461d1c31958d9712cc0ecc6e1583885f490744eb7cee79a"
+EXPECTED_DETAILED_MODEL_HASH = "5a99719406cbe9f8635c1fd553bc775d635435939c37d3eb3e84f46f803c8927"
+EXPECTED_VECTOR_HASH = "268e4882fffb12c2eaef1e26100b4be261f2b53ec892b1013c97a24763a1b1b6"
+EXPECTED_MLB_HASH = "1885a2719893874ab63ab45e061910d0ae978cdf89e29ce85ef40f38c0fc625d"
 
 CACHE_FILE = 'domain_country_cache.txt'
 COMBINED_FEED_FILE = 'combined_feed.json'
@@ -62,17 +67,22 @@ async def download_file(url, filepath):
 
 @app.on_event("startup")
 async def startup_event() -> None:
-    global model, vectorizer, mlb, tld_country_map, country_continent_map, domain_country_cache, combined_feed
+    global binary_model, detailed_model, vectorizer, mlb, tld_country_map, country_continent_map, domain_country_cache, combined_feed
     try:
-        model_path = 'text_classifier_model.pkl'
-        vectorizer_path = 'tfidf_vectorizer.pkl'
-        mlb_path = 'mlb.pkl'
+        binary_model_path = 'v3_binary_classifier_model.pkl'
+        detailed_model_path = 'v3_detailed_classifier_model.pkl'
+        vectorizer_path = 'v3_tfidf_vectorizer.pkl'
+        mlb_path = 'v3_mlb.pkl'
         tld_country_map_path = 'tld_country_map.txt'
         country_continent_map_path = 'country_continent_map.txt'
 
-        logger.info("Downloading model...")
-        await download_file(MODEL_URL, model_path)
-        logger.info("Model downloaded.")
+        logger.info("Downloading binary model...")
+        await download_file(BINARY_MODEL_URL, binary_model_path)
+        logger.info("Binary model downloaded.")
+
+        logger.info("Downloading detailed model...")
+        await download_file(DETAILED_MODEL_URL, detailed_model_path)
+        logger.info("Detailed model downloaded.")
 
         logger.info("Downloading vectorizer...")
         await download_file(VECTOR_URL, vectorizer_path)
@@ -83,17 +93,23 @@ async def startup_event() -> None:
         logger.info("MultiLabelBinarizer downloaded.")
 
         logger.info("Verifying file integrity...")
-        if generate_file_hash(model_path) != EXPECTED_MODEL_HASH:
-            raise ValueError("Model file is corrupted.")
+        if generate_file_hash(binary_model_path) != EXPECTED_BINARY_MODEL_HASH:
+            raise ValueError("Binary model file is corrupted.")
+        if generate_file_hash(detailed_model_path) != EXPECTED_DETAILED_MODEL_HASH:
+            raise ValueError("Detailed model file is corrupted.")
         if generate_file_hash(vectorizer_path) != EXPECTED_VECTOR_HASH:
             raise ValueError("Vectorizer file is corrupted.")
         if generate_file_hash(mlb_path) != EXPECTED_MLB_HASH:
             raise ValueError("MultiLabelBinarizer file is corrupted.")
         logger.info("File integrity verified.")
 
-        logger.info("Loading model...")
-        model = joblib.load(model_path)
-        logger.info("Model loaded successfully.")
+        logger.info("Loading binary model...")
+        binary_model = joblib.load(binary_model_path)
+        logger.info("Binary model loaded successfully.")
+
+        logger.info("Loading detailed model...")
+        detailed_model = joblib.load(detailed_model_path)
+        logger.info("Detailed model loaded successfully.")
 
         logger.info("Loading vectorizer...")
         vectorizer = joblib.load(vectorizer_path)
@@ -193,7 +209,7 @@ def get_continent_from_country(country: str) -> str:
 
 
 def url_friendly_format(text: str) -> str:
-    return text.lower().replace(" ", "-")
+    return text.strip().lower().replace(" ", "-")
 
 
 async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optional[bytes]:
@@ -212,21 +228,28 @@ async def fetch_feed_data(rss_feed_url: str, headers: Dict[str, str]) -> Optiona
 
 
 async def parse_feed_entries(entries: List[Dict[str, Any]], rss_feed_url: str) -> List[Dict[str, Any]]:
-    global model, vectorizer, mlb
+    global binary_model, detailed_model, vectorizer, mlb
 
     if not entries:
         return []
 
-    texts = [entry.get("title", "") + ' ' + entry.get("description", "") for entry in entries if entry.get("title") or entry.get("description")]
+    texts = [entry.get("title", "") + ' ' + entry.get("description", "") for entry in entries if
+             entry.get("title") or entry.get("description")]
     if not texts:
         return []
 
     X = vectorizer.transform(texts)
-    classifications = mlb.inverse_transform(model.predict(X))
+    is_construction = binary_model.predict(X)
+
+    if sum(is_construction) > 0:
+        detailed_classifications = mlb.inverse_transform(detailed_model.predict(X[is_construction == 1]))
+    else:
+        detailed_classifications = []
 
     parsed_entries = []
 
-    for entry, classification in zip(entries, classifications):
+    detailed_index = 0
+    for entry, is_const in zip(entries, is_construction):
         title = entry.get("title", "")
         description = entry.get("description", "")
         pub_date_str = entry.get("published", "")
@@ -262,7 +285,14 @@ async def parse_feed_entries(entries: List[Dict[str, Any]], rss_feed_url: str) -
                     break
 
         article_url = entry.get("link", rss_feed_url)
-        classification_str = url_friendly_format(", ".join(classification))
+
+        if is_const:
+            classification = detailed_classifications[detailed_index]
+            detailed_index += 1
+        else:
+            classification = ["non-construction"]
+
+        classification_str = ", ".join([url_friendly_format(cls.strip()) for cls in classification])
 
         country = get_country_from_url(article_url)
         continent = get_continent_from_country(country)
@@ -283,7 +313,8 @@ async def parse_feed_entries(entries: List[Dict[str, Any]], rss_feed_url: str) -
             "image_link": image_link or "",
             "classification": classification_str,
             "country": country,
-            "continent": continent
+            "continent": continent,
+            "is_construction": bool(is_const)
         })
 
     return parsed_entries
@@ -352,10 +383,12 @@ async def get_combined_feed(
         filtered_feed = combined_feed
         if classifications:
             url_friendly_classifications = [url_friendly_format(cls) for cls in classifications]
-            filtered_feed = [item for item in combined_feed if url_friendly_format(item['classification']) in url_friendly_classifications]
+            filtered_feed = [item for item in combined_feed if
+                             url_friendly_format(item['classification']) in url_friendly_classifications]
         if continents:
             url_friendly_continents = [url_friendly_format(cont) for cont in continents]
-            filtered_feed = [item for item in filtered_feed if url_friendly_format(item['continent']) in url_friendly_continents]
+            filtered_feed = [item for item in filtered_feed if
+                             url_friendly_format(item['continent']) in url_friendly_continents]
 
         start_idx = (page - 1) * size
         end_idx = start_idx + size
@@ -371,6 +404,24 @@ async def get_combined_feed(
         }
 
 
+@app.get("/fullfeed")
+async def get_full_feed(
+        classifications: Optional[List[str]] = Query(None),
+        continents: Optional[List[str]] = Query(None)
+) -> List[Dict[str, Any]]:
+    async with feed_lock:
+        filtered_feed = combined_feed
+        if classifications:
+            url_friendly_classifications = [url_friendly_format(cls) for cls in classifications]
+            filtered_feed = [item for item in combined_feed if
+                             url_friendly_format(item['classification']) in url_friendly_classifications]
+        if continents:
+            url_friendly_continents = [url_friendly_format(cont) for cont in continents]
+            filtered_feed = [item for item in filtered_feed if
+                             url_friendly_format(item['continent']) in url_friendly_continents]
+        return filtered_feed
+
+
 @app.post("/refresh_feed")
 async def refresh_feed(background_tasks: BackgroundTasks) -> Dict[str, str]:
     background_tasks.add_task(update_combined_feed)
@@ -384,10 +435,16 @@ class Article(BaseModel):
 
 @app.post("/classify_article")
 async def classify_article(article: Article) -> Dict[str, Any]:
-    text = article.title + ' ' + article.description
-    X = vectorizer.transform([text])
-    original_classification = mlb.inverse_transform(model.predict(X))[0]
-    classification = url_friendly_format(", ".join(original_classification))
+    async with model_lock:
+        text = article.title + ' ' + article.description
+        X = vectorizer.transform([text])
+        is_construction = binary_model.predict(X)[0]
+        if is_construction == 1:
+            original_classification = mlb.inverse_transform(detailed_model.predict(X))[0]
+            classification = ", ".join([url_friendly_format(cls.strip()) for cls in original_classification])
+        else:
+            original_classification = ["non-construction"]
+            classification = "non-construction"
     return {"classification": original_classification}
 
 
