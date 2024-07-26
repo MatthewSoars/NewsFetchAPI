@@ -31,16 +31,16 @@ vectorizer = None
 mlb = None
 
 # URLs to download the files from DigitalOcean Spaces
-BINARY_MODEL_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v3_binary_classifier_model.pkl"
-DETAILED_MODEL_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v3_detailed_classifier_model.pkl"
-VECTOR_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v3_tfidf_vectorizer.pkl"
-MLB_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v3_mlb.pkl"
+BINARY_MODEL_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v5_binary_classifier_model.pkl"
+DETAILED_MODEL_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v5_detailed_classifier_model.pkl"
+VECTOR_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v5_tfidf_vectorizer.pkl"
+MLB_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v5_mlb.pkl"
 
 # Expected file hashes
-EXPECTED_BINARY_MODEL_HASH = "6da8dd301d1c15447461d1c31958d9712cc0ecc6e1583885f490744eb7cee79a"
-EXPECTED_DETAILED_MODEL_HASH = "5a99719406cbe9f8635c1fd553bc775d635435939c37d3eb3e84f46f803c8927"
-EXPECTED_VECTOR_HASH = "268e4882fffb12c2eaef1e26100b4be261f2b53ec892b1013c97a24763a1b1b6"
-EXPECTED_MLB_HASH = "1885a2719893874ab63ab45e061910d0ae978cdf89e29ce85ef40f38c0fc625d"
+EXPECTED_BINARY_MODEL_HASH = "917b6b5ab244237b19a1ea4f8e57864a64bd80ca71f89539ae6a6451f82fb1e8"
+EXPECTED_DETAILED_MODEL_HASH = "548c60cd44b3a5ec0e44028630f0aa7e561d2eecf1a8b7550713006b9d8a33f7"
+EXPECTED_VECTOR_HASH = "dad6ec379eb9d703bb74bb301841b443280824b30e3370643538f01bed8de47e"
+EXPECTED_MLB_HASH = "273f02d42a1e334d1c85f3f383fbf286856663a6d3d41b77cbcb23286716ff58"
 
 CACHE_FILE = 'domain_country_cache.txt'
 COMBINED_FEED_FILE = 'combined_feed.json'
@@ -241,15 +241,11 @@ async def parse_feed_entries(entries: List[Dict[str, Any]], rss_feed_url: str) -
     X = vectorizer.transform(texts)
     is_construction = binary_model.predict(X)
 
-    if sum(is_construction) > 0:
-        detailed_classifications = mlb.inverse_transform(detailed_model.predict(X[is_construction == 1]))
-    else:
-        detailed_classifications = []
+    # Predict detailed classifications for all articles
+    all_detailed_classifications = mlb.inverse_transform(detailed_model.predict(X))
 
     parsed_entries = []
-
-    detailed_index = 0
-    for entry, is_const in zip(entries, is_construction):
+    for entry, is_const, detailed_classification in zip(entries, is_construction, all_detailed_classifications):
         title = entry.get("title", "")
         description = entry.get("description", "")
         pub_date_str = entry.get("published", "")
@@ -286,11 +282,7 @@ async def parse_feed_entries(entries: List[Dict[str, Any]], rss_feed_url: str) -
 
         article_url = entry.get("link", rss_feed_url)
 
-        if is_const:
-            classification = detailed_classifications[detailed_index]
-            detailed_index += 1
-        else:
-            classification = ["non-construction"]
+        classification = detailed_classification if is_const else ["non-construction"]
 
         classification_str = ", ".join([url_friendly_format(cls.strip()) for cls in classification])
 

@@ -106,3 +106,4 @@ https://www.business-live.co.uk/rss
 https://www.constructionbusinessreview.com/rss
 https://www.mcsmag.com/rss
 https://www.worldconstructiontoday.com/rss
+https://rcimag.co.uk/feed
