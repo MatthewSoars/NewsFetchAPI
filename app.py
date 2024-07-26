@@ -14,17 +14,21 @@ import urllib.parse
 import tldextract
 import whois
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 
 app = FastAPI()
 
+# Global Variables
 combined_feed: List[Dict[str, Any]] = []
 denied_urls: List[str] = []
 feed_lock = asyncio.Lock()
 model_lock = asyncio.Lock()
 
+# Logger Configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Machine Learning Models
 binary_model = None
 detailed_model = None
 vectorizer = None
@@ -37,19 +41,25 @@ VECTOR_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v5_tfidf_vec
 MLB_URL = "https://construct-api.ams3.cdn.digitaloceanspaces.com/v5_mlb.pkl"
 
 # Expected file hashes
-EXPECTED_BINARY_MODEL_HASH = "917b6b5ab244237b19a1ea4f8e57864a64bd80ca71f89539ae6a6451f82fb1e8"
-EXPECTED_DETAILED_MODEL_HASH = "548c60cd44b3a5ec0e44028630f0aa7e561d2eecf1a8b7550713006b9d8a33f7"
-EXPECTED_VECTOR_HASH = "dad6ec379eb9d703bb74bb301841b443280824b30e3370643538f01bed8de47e"
-EXPECTED_MLB_HASH = "273f02d42a1e334d1c85f3f383fbf286856663a6d3d41b77cbcb23286716ff58"
+EXPECTED_HASHES = {
+    BINARY_MODEL_URL: "917b6b5ab244237b19a1ea4f8e57864a64bd80ca71f89539ae6a6451f82fb1e8",
+    DETAILED_MODEL_URL: "548c60cd44b3a5ec0e44028630f0aa7e561d2eecf1a8b7550713006b9d8a33f7",
+    VECTOR_URL: "dad6ec379eb9d703bb74bb301841b443280824b30e3370643538f01bed8de47e",
+    MLB_URL: "273f02d42a1e334d1c85f3f383fbf286856663a6d3d41b77cbcb23286716ff58",
+}
 
 CACHE_FILE = 'domain_country_cache.txt'
 COMBINED_FEED_FILE = 'combined_feed.json'
+TLD_COUNTRY_MAP_FILE = 'tld_country_map.txt'
+COUNTRY_CONTINENT_MAP_FILE = 'country_continent_map.txt'
+
+# Cache and mappings
 tld_country_map: Dict[str, str] = {}
 country_continent_map: Dict[str, Dict[str, str]] = {}
 domain_country_cache: Dict[str, str] = {}
 
 
-def generate_file_hash(filepath):
+def generate_file_hash(filepath: str) -> str:
     sha256_hash = hashlib.sha256()
     with open(filepath, "rb") as f:
         for byte_block in iter(lambda: f.read(4096), b""):
@@ -57,7 +67,7 @@ def generate_file_hash(filepath):
     return sha256_hash.hexdigest()
 
 
-async def download_file(url, filepath):
+async def download_file(url: str, filepath: str) -> None:
     async with httpx.AsyncClient() as client:
         response = await client.get(url)
         response.raise_for_status()
@@ -65,91 +75,24 @@ async def download_file(url, filepath):
             f.write(response.content)
 
 
-@app.on_event("startup")
-async def startup_event() -> None:
-    global binary_model, detailed_model, vectorizer, mlb, tld_country_map, country_continent_map, domain_country_cache, combined_feed
-    try:
-        binary_model_path = 'v3_binary_classifier_model.pkl'
-        detailed_model_path = 'v3_detailed_classifier_model.pkl'
-        vectorizer_path = 'v3_tfidf_vectorizer.pkl'
-        mlb_path = 'v3_mlb.pkl'
-        tld_country_map_path = 'tld_country_map.txt'
-        country_continent_map_path = 'country_continent_map.txt'
+async def verify_and_load_models() -> None:
+    global binary_model, detailed_model, vectorizer, mlb
+    file_paths = {
+        BINARY_MODEL_URL: 'v3_binary_classifier_model.pkl',
+        DETAILED_MODEL_URL: 'v3_detailed_classifier_model.pkl',
+        VECTOR_URL: 'v3_tfidf_vectorizer.pkl',
+        MLB_URL: 'v3_mlb.pkl'
+    }
 
-        logger.info("Downloading binary model...")
-        await download_file(BINARY_MODEL_URL, binary_model_path)
-        logger.info("Binary model downloaded.")
+    for url, path in file_paths.items():
+        await download_file(url, path)
+        if generate_file_hash(path) != EXPECTED_HASHES[url]:
+            raise ValueError(f"File from {url} is corrupted.")
 
-        logger.info("Downloading detailed model...")
-        await download_file(DETAILED_MODEL_URL, detailed_model_path)
-        logger.info("Detailed model downloaded.")
-
-        logger.info("Downloading vectorizer...")
-        await download_file(VECTOR_URL, vectorizer_path)
-        logger.info("Vectorizer downloaded.")
-
-        logger.info("Downloading MultiLabelBinarizer...")
-        await download_file(MLB_URL, mlb_path)
-        logger.info("MultiLabelBinarizer downloaded.")
-
-        logger.info("Verifying file integrity...")
-        if generate_file_hash(binary_model_path) != EXPECTED_BINARY_MODEL_HASH:
-            raise ValueError("Binary model file is corrupted.")
-        if generate_file_hash(detailed_model_path) != EXPECTED_DETAILED_MODEL_HASH:
-            raise ValueError("Detailed model file is corrupted.")
-        if generate_file_hash(vectorizer_path) != EXPECTED_VECTOR_HASH:
-            raise ValueError("Vectorizer file is corrupted.")
-        if generate_file_hash(mlb_path) != EXPECTED_MLB_HASH:
-            raise ValueError("MultiLabelBinarizer file is corrupted.")
-        logger.info("File integrity verified.")
-
-        logger.info("Loading binary model...")
-        binary_model = joblib.load(binary_model_path)
-        logger.info("Binary model loaded successfully.")
-
-        logger.info("Loading detailed model...")
-        detailed_model = joblib.load(detailed_model_path)
-        logger.info("Detailed model loaded successfully.")
-
-        logger.info("Loading vectorizer...")
-        vectorizer = joblib.load(vectorizer_path)
-        logger.info("Vectorizer loaded successfully.")
-
-        logger.info("Loading MultiLabelBinarizer...")
-        mlb = joblib.load(mlb_path)
-        logger.info("MultiLabelBinarizer loaded successfully.")
-
-        logger.info("Loading country maps and cache...")
-        if not os.path.exists(tld_country_map_path):
-            logger.error(f"TLD country map file not found: {tld_country_map_path}")
-            return
-        if not os.path.exists(country_continent_map_path):
-            logger.error(f"Country continent map file not found: {country_continent_map_path}")
-            return
-
-        tld_country_map = load_country_map(tld_country_map_path)
-        country_continent_map = load_country_map(country_continent_map_path)
-        domain_country_cache = load_cache()
-        logger.info("Country maps and cache loaded successfully.")
-
-        logger.info("Loading combined feed from file...")
-        combined_feed = load_combined_feed()
-        logger.info("Combined feed loaded successfully.")
-
-        logger.info("Starting the background task for refreshing feed...")
-        asyncio.create_task(refresh_feed_background_task())
-        logger.info("Background task started successfully.")
-    except Exception as e:
-        logger.error(f"Error during startup event: {e}")
-        raise
-
-
-def get_root_domain(url: str) -> str:
-    parsed_url = urllib.parse.urlparse(url)
-    netloc = parsed_url.netloc
-    extract_result = tldextract.extract(netloc)
-    root_domain = f"{extract_result.domain}.{extract_result.suffix}"
-    return root_domain
+    binary_model = joblib.load(file_paths[BINARY_MODEL_URL])
+    detailed_model = joblib.load(file_paths[DETAILED_MODEL_URL])
+    vectorizer = joblib.load(file_paths[VECTOR_URL])
+    mlb = joblib.load(file_paths[MLB_URL])
 
 
 def load_country_map(filename: str) -> Dict[str, Dict[str, str]]:
@@ -180,6 +123,14 @@ def save_cache(cache: Dict[str, str]) -> None:
             file.write(f"{domain},{country}\n")
 
 
+def get_root_domain(url: str) -> str:
+    parsed_url = urllib.parse.urlparse(url)
+    netloc = parsed_url.netloc
+    extract_result = tldextract.extract(netloc)
+    root_domain = f"{extract_result.domain}.{extract_result.suffix}"
+    return root_domain
+
+
 def get_country_from_url(url: str) -> str:
     global tld_country_map, domain_country_cache
     try:
@@ -208,6 +159,7 @@ def get_continent_from_country(country: str) -> str:
     return country_continent_map.get(country, {}).get('continent', "unknown")
 
 
+@lru_cache(maxsize=128)
 def url_friendly_format(text: str) -> str:
     return text.strip().lower().replace(" ", "-")
 
@@ -241,11 +193,13 @@ async def parse_feed_entries(entries: List[Dict[str, Any]], rss_feed_url: str) -
     X = vectorizer.transform(texts)
     is_construction = binary_model.predict(X)
 
-    # Predict detailed classifications for all articles
     all_detailed_classifications = mlb.inverse_transform(detailed_model.predict(X))
 
     parsed_entries = []
     for entry, is_const, detailed_classification in zip(entries, is_construction, all_detailed_classifications):
+        if not is_const:
+            continue
+
         title = entry.get("title", "")
         description = entry.get("description", "")
         pub_date_str = entry.get("published", "")
@@ -282,9 +236,7 @@ async def parse_feed_entries(entries: List[Dict[str, Any]], rss_feed_url: str) -
 
         article_url = entry.get("link", rss_feed_url)
 
-        classification = detailed_classification if is_const else ["non-construction"]
-
-        classification_str = ", ".join([url_friendly_format(cls.strip()) for cls in classification])
+        classification_str = ", ".join([url_friendly_format(cls.strip()) for cls in detailed_classification])
 
         country = get_country_from_url(article_url)
         continent = get_continent_from_country(country)
@@ -362,6 +314,32 @@ def load_combined_feed() -> List[Dict[str, Any]]:
 def save_combined_feed(feed: List[Dict[str, Any]]) -> None:
     with open(COMBINED_FEED_FILE, 'w') as file:
         json.dump(feed, file)
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    global tld_country_map, country_continent_map, domain_country_cache, combined_feed
+    try:
+        logger.info("Verifying and loading models...")
+        await verify_and_load_models()
+        logger.info("Models loaded successfully.")
+
+        logger.info("Loading country maps and cache...")
+        tld_country_map = load_country_map(TLD_COUNTRY_MAP_FILE)
+        country_continent_map = load_country_map(COUNTRY_CONTINENT_MAP_FILE)
+        domain_country_cache = load_cache()
+        logger.info("Country maps and cache loaded successfully.")
+
+        logger.info("Loading combined feed from file...")
+        combined_feed = load_combined_feed()
+        logger.info("Combined feed loaded successfully.")
+
+        logger.info("Starting the background task for refreshing feed...")
+        asyncio.create_task(refresh_feed_background_task())
+        logger.info("Background task started successfully.")
+    except Exception as e:
+        logger.error(f"Error during startup event: {e}")
+        raise
 
 
 @app.get("/combined_feed")
