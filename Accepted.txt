@@ -108,7 +108,6 @@ https://www.mcsmag.com/rss
 https://www.worldconstructiontoday.com/rss
 https://rcimag.co.uk/feed
 https://csengineermag.com/rss
-https://construction-today.com/rss
 https://www.padmagazine.co.uk/rss
 https://glasstimes.co.uk/rss
 https://www.nfrc.co.uk/rss
@@ -189,7 +188,6 @@ https://www.mining-journal.com/rss
 https://www.modular.org/rss
 http://feeds.feedburner.com/
 https://www.newsteelconstruction.com/rss
-https://construction-today.com/rss
 https://landscapermagazine.com/rss
 https://constructafrica.com/rss-feed
 https://www.globalcement.com/rss
