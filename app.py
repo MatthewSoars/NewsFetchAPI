@@ -236,7 +236,8 @@ async def parse_feed_entries(entries: List[Dict[str, Any]], rss_feed_url: str) -
 
         article_url = entry.get("link", rss_feed_url)
 
-        classification_str = ", ".join([url_friendly_format(cls.strip()) for cls in detailed_classification])
+        # Assign a general "general construction" classification if the detailed classification is empty
+        classification_str = ", ".join([url_friendly_format(cls.strip()) for cls in detailed_classification]) if detailed_classification else "general construction"
 
         country = get_country_from_url(article_url)
         continent = get_continent_from_country(country)
@@ -411,7 +412,7 @@ async def classify_article(article: Article) -> Dict[str, Any]:
         is_construction = binary_model.predict(X)[0]
         if is_construction == 1:
             original_classification = mlb.inverse_transform(detailed_model.predict(X))[0]
-            classification = ", ".join([url_friendly_format(cls.strip()) for cls in original_classification])
+            classification = ", ".join([url_friendly_format(cls.strip()) for cls in original_classification]) if original_classification else "general construction"
         else:
             original_classification = ["non-construction"]
             classification = "non-construction"
