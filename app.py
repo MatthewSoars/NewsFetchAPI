@@ -237,7 +237,8 @@ async def parse_feed_entries(entries: List[Dict[str, Any]], rss_feed_url: str) -
         article_url = entry.get("link", rss_feed_url)
 
         # Assign a general "general construction" classification if the detailed classification is empty
-        classification_str = ", ".join([url_friendly_format(cls.strip()) for cls in detailed_classification]) if detailed_classification else "general construction"
+        classification_str = ", ".join([url_friendly_format(cls.strip()) for cls in
+                                        detailed_classification]) if detailed_classification else "general construction"
 
         country = get_country_from_url(article_url)
         continent = get_continent_from_country(country)
@@ -379,7 +380,7 @@ async def get_combined_feed(
 async def get_full_feed(
         classifications: Optional[List[str]] = Query(None),
         continents: Optional[List[str]] = Query(None)
-) -> List[Dict[str, Any]]:
+) -> Dict[str, Any]:
     async with feed_lock:
         filtered_feed = combined_feed
         if classifications:
@@ -390,8 +391,17 @@ async def get_full_feed(
             url_friendly_continents = [url_friendly_format(cont) for cont in continents]
             filtered_feed = [item for item in filtered_feed if
                              url_friendly_format(item['continent']) in url_friendly_continents]
-        return filtered_feed
 
+        # Calculate unique classifications in the current filtered feed
+        unique_classifications = set([item['classification'] for item in filtered_feed])
+
+        total_items = len(filtered_feed)
+        return {
+            "total_items": total_items,
+            "classifications": list(unique_classifications),
+            "continents": continents or "All",
+            "feed": filtered_feed
+        }
 
 @app.post("/refresh_feed")
 async def refresh_feed(background_tasks: BackgroundTasks) -> Dict[str, str]:
@@ -412,7 +422,8 @@ async def classify_article(article: Article) -> Dict[str, Any]:
         is_construction = binary_model.predict(X)[0]
         if is_construction == 1:
             original_classification = mlb.inverse_transform(detailed_model.predict(X))[0]
-            classification = ", ".join([url_friendly_format(cls.strip()) for cls in original_classification]) if original_classification else "general construction"
+            classification = ", ".join([url_friendly_format(cls.strip()) for cls in
+                                        original_classification]) if original_classification else "general construction"
         else:
             original_classification = ["non-construction"]
             classification = "non-construction"
