@@ -9,3 +9,4 @@ gunicorn==22.0.0
 feedparser==6.0.10
 pydantic==1.10.8
 python-multipart
+jinja2
