@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manage RSS Links</title>
+</head>
+<body>
+    <h1>Manage RSS Feed Links</h1>
+    {% if error %}
+        <p style="color: red;">{{ error }}</p>
+    {% endif %}
+    {% if message %}
+        <p style="color: green;">{{ message }}</p>
+    {% endif %}
+    <form action="/manage_links/add" method="post">
+        <label for="link">Add RSS Feed Link:</label>
+        <input type="text" id="link" name="link" required>
+        <button type="submit">Add</button>
+    </form>
+    <h2>Current RSS Links</h2>
+    <ul>
+        {% for link in links %}
+            <li>
+                {{ link }}
+                <form action="/manage_links/delete" method="post" style="display: inline;">
+                    <input type="hidden" name="link" value="{{ link }}">
+                    <button type="submit">Delete</button>
+                </form>
+            </li>
+        {% endfor %}
+    </ul>
+</body>
+</html>

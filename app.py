@@ -2,7 +2,8 @@ import os
 import hashlib
 import httpx
 import json
-from fastapi import FastAPI, BackgroundTasks, Query, HTTPException
+from fastapi import FastAPI, BackgroundTasks, Query, HTTPException, Request, Form
+from fastapi.responses import HTMLResponse
 import joblib
 import logging
 import feedparser
@@ -15,8 +16,10 @@ import tldextract
 import whois
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
+from starlette.templating import Jinja2Templates
 
 app = FastAPI()
+templates = Jinja2Templates(directory="templates")
 
 # Global Variables
 combined_feed: List[Dict[str, Any]] = []
@@ -58,6 +61,91 @@ tld_country_map: Dict[str, str] = {}
 country_continent_map: Dict[str, Dict[str, str]] = {}
 domain_country_cache: Dict[str, str] = {}
 
+# New RSS links file
+RSS_LINKS_FILE = "Accepted.txt"
+
+@app.get("/rss_links", response_model=List[str])
+async def get_rss_links() -> List[str]:
+    """
+    Get the current list of RSS feed links.
+    """
+    if not os.path.exists(RSS_LINKS_FILE):
+        return []
+    with open(RSS_LINKS_FILE, "r") as file:
+        links = file.read().splitlines()
+    return links
+
+@app.post("/rss_links")
+async def add_rss_link(link: str) -> Dict[str, str]:
+    """
+    Add a new RSS feed link to the list.
+    """
+    if not link:
+        raise HTTPException(status_code=400, detail="Link cannot be empty.")
+    if not os.path.exists(RSS_LINKS_FILE):
+        with open(RSS_LINKS_FILE, "w") as file:
+            file.write(link + "\n")
+    else:
+        with open(RSS_LINKS_FILE, "r") as file:
+            links = file.read().splitlines()
+        if link in links:
+            raise HTTPException(status_code=400, detail="Link already exists.")
+        links.append(link)
+        with open(RSS_LINKS_FILE, "w") as file:
+            file.write("\n".join(links) + "\n")
+    return {"message": "Link added successfully."}
+
+@app.delete("/rss_links")
+async def remove_rss_link(link: str) -> Dict[str, str]:
+    """
+    Remove an RSS feed link from the list.
+    """
+    if not link:
+        raise HTTPException(status_code=400, detail="Link cannot be empty.")
+    if not os.path.exists(RSS_LINKS_FILE):
+        raise HTTPException(status_code=404, detail="No RSS links found.")
+    with open(RSS_LINKS_FILE, "r") as file:
+        links = file.read().splitlines()
+    if link not in links:
+        raise HTTPException(status_code=404, detail="Link not found.")
+    links.remove(link)
+    with open(RSS_LINKS_FILE, "w") as file:
+        file.write("\n".join(links) + "\n")
+    return {"message": "Link removed successfully."}
+
+@app.get("/manage_links", response_class=HTMLResponse)
+async def manage_links(request: Request):
+    """
+    Render the page to manage RSS feed links.
+    """
+    if not os.path.exists(RSS_LINKS_FILE):
+        links = []
+    else:
+        with open(RSS_LINKS_FILE, "r") as file:
+            links = file.read().splitlines()
+    return templates.TemplateResponse("manage_links.html", {"request": request, "links": links})
+
+@app.post("/manage_links/add")
+async def add_link(request: Request, link: str = Form(...)):
+    """
+    Add an RSS link through the web interface.
+    """
+    try:
+        await add_rss_link(link)
+    except HTTPException as e:
+        return templates.TemplateResponse("manage_links.html", {"request": request, "links": await get_rss_links(), "error": e.detail})
+    return templates.TemplateResponse("manage_links.html", {"request": request, "links": await get_rss_links(), "message": "Link added successfully."})
+
+@app.post("/manage_links/delete")
+async def delete_link(request: Request, link: str = Form(...)):
+    """
+    Remove an RSS link through the web interface.
+    """
+    try:
+        await remove_rss_link(link)
+    except HTTPException as e:
+        return templates.TemplateResponse("manage_links.html", {"request": request, "links": await get_rss_links(), "error": e.detail})
+    return templates.TemplateResponse("manage_links.html", {"request": request, "links": await get_rss_links(), "message": "Link removed successfully."})
 
 def generate_file_hash(filepath: str) -> str:
     sha256_hash = hashlib.sha256()
@@ -402,6 +490,7 @@ async def get_full_feed(
             "continents": continents or "All",
             "feed": filtered_feed
         }
+
 
 @app.post("/refresh_feed")
 async def refresh_feed(background_tasks: BackgroundTasks) -> Dict[str, str]:
