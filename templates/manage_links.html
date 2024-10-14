@@ -4,31 +4,51 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage RSS Links</title>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            // Show loading indicator
+            document.getElementById("loading").style.display = "block";
+            document.getElementById("content").style.display = "none";
+        });
+
+        window.onload = function() {
+            // Hide loading indicator when everything is loaded
+            document.getElementById("loading").style.display = "none";
+            document.getElementById("content").style.display = "block";
+        };
+    </script>
 </head>
 <body>
     <h1>Manage RSS Feed Links</h1>
-    {% if error %}
-        <p style="color: red;">{{ error }}</p>
-    {% endif %}
-    {% if message %}
-        <p style="color: green;">{{ message }}</p>
-    {% endif %}
-    <form action="/manage_links/add" method="post">
-        <label for="link">Add RSS Feed Link:</label>
-        <input type="text" id="link" name="link" required>
-        <button type="submit">Add</button>
-    </form>
-    <h2>Current RSS Links</h2>
-    <ul>
-        {% for link in links %}
-            <li>
-                {{ link }}
-                <form action="/manage_links/delete" method="post" style="display: inline;">
-                    <input type="hidden" name="link" value="{{ link }}">
-                    <button type="submit">Delete</button>
-                </form>
-            </li>
-        {% endfor %}
-    </ul>
+
+    <div id="loading" style="display:none;">
+        <p>Loading, please wait...</p>
+    </div>
+
+    <div id="content">
+        {% if error %}
+            <p style="color: red;">{{ error }}</p>
+        {% endif %}
+        {% if message %}
+            <p style="color: green;">{{ message }}</p>
+        {% endif %}
+        <form action="/manage_links/add" method="post">
+            <label for="link">Add RSS Feed Link:</label>
+            <input type="text" id="link" name="link" required>
+            <button type="submit">Add</button>
+        </form>
+        <h2>Current RSS Links</h2>
+        <ul>
+            {% for link in links %}
+                <li>
+                    {{ link }}
+                    <form action="/manage_links/delete" method="post" style="display: inline;">
+                        <input type="hidden" name="link" value="{{ link }}">
+                        <button type="submit">Delete</button>
+                    </form>
+                </li>
+            {% endfor %}
+        </ul>
+    </div>
 </body>
 </html>

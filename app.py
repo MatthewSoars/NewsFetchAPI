@@ -27,7 +27,6 @@ denied_urls: List[str] = []
 feed_lock = asyncio.Lock()
 model_lock = asyncio.Lock()
 
-
 # Logger Configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
