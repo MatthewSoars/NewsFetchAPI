@@ -7,6 +7,6 @@ tldextract==3.4.0
 whois==0.9.21
 gunicorn==22.0.0
 feedparser==6.0.10
-pydantic==2.9.2
+pydantic
 python-multipart
 jinja2
